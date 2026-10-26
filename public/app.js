@@ -33,6 +33,54 @@ function controls() {
   for (const id of ['save','logout','newChat','deleteChat','check','reloadMemory','forgetToken']) $(id).disabled = busy;
   document.querySelectorAll('[data-rm],[data-conversation]').forEach(button => { button.disabled = busy; });
 }
+function renderFormattedText(container, text) {
+  if (!text.includes('```') && !text.includes('`') && !text.includes('**')) {
+    container.textContent = text;
+    return;
+  }
+  const parts = text.split(/(```[\s\S]*?```)/g);
+  for (const part of parts) {
+    if (part.startsWith('```') && part.endsWith('```')) {
+      const firstLineEnd = part.indexOf('\n');
+      const lang = firstLineEnd > 3 ? part.slice(3, firstLineEnd).trim() : '';
+      const code = firstLineEnd > 3 ? part.slice(firstLineEnd + 1, -3) : part.slice(3, -3);
+      const wrap = document.createElement('div'); wrap.className = 'code-wrap';
+      if (lang) {
+        const langBadge = document.createElement('span'); langBadge.className = 'code-lang'; langBadge.textContent = lang;
+        wrap.appendChild(langBadge);
+      }
+      const copyBtn = document.createElement('button'); copyBtn.className = 'copy-code-btn'; copyBtn.type = 'button'; copyBtn.textContent = 'Kopieren';
+      copyBtn.onclick = () => {
+        navigator.clipboard?.writeText(code).then(() => {
+          copyBtn.textContent = 'Kopiert!';
+          setTimeout(() => { copyBtn.textContent = 'Kopieren'; }, 2000);
+        });
+      };
+      wrap.appendChild(copyBtn);
+      const pre = document.createElement('pre'); const codeElem = document.createElement('code');
+      codeElem.textContent = code;
+      pre.appendChild(codeElem);
+      wrap.appendChild(pre);
+      container.appendChild(wrap);
+    } else if (part) {
+      const span = document.createElement('span');
+      span.innerHTML = esc(part)
+        .replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      container.appendChild(span);
+    }
+  }
+}
+let loadingNode = null;
+function showLoading() {
+  hideLoading();
+  loadingNode = document.createElement('div'); loadingNode.className = 'msg loading-msg';
+  loadingNode.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span><span class="loading-label">KI denkt nach …</span>';
+  $('messages').appendChild(loadingNode); loadingNode.scrollIntoView({block:'nearest'});
+}
+function hideLoading() {
+  if (loadingNode) { loadingNode.remove(); loadingNode = null; }
+}
 function message(content, role = 'assistant') {
   const node = document.createElement('div'); node.className = 'msg' + (role === 'user' ? ' user' : '');
   const thinkMatch = role === 'assistant' ? String(content).match(/^<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/) : null;
@@ -41,7 +89,11 @@ function message(content, role = 'assistant') {
     const summary = document.createElement('summary'); summary.textContent = 'Gedankengang des Modells';
     const thinkText = document.createElement('div'); thinkText.className = 'think-text'; thinkText.textContent = thinkMatch[1].trim();
     details.append(summary, thinkText); node.appendChild(details);
-    const textNode = document.createElement('div'); textNode.textContent = thinkMatch[2].trim(); node.appendChild(textNode);
+    const textNode = document.createElement('div');
+    renderFormattedText(textNode, thinkMatch[2].trim());
+    node.appendChild(textNode);
+  } else if (role === 'assistant') {
+    renderFormattedText(node, content);
   } else {
     node.textContent = content;
   }
@@ -196,23 +248,36 @@ $('deleteChat').onclick = async () => {
 };
 $('form').onsubmit = async event => {
   event.preventDefault(); const text = $('input').value.trim(); if (!text || busy || !connected) return;
-  busy = true; controls(); message(text,'user'); $('input').value = '';
+  busy = true; controls(); message(text,'user'); $('input').value = ''; $('input').style.height = 'auto';
+  showLoading();
   try {
     // Keep complete recent turns and bound context before sending.
     const messages = [...history.map(({role,content}) => ({role,content})).slice(-28),{role:'user',content:text}];
     while (messages.length > 1 && messages.reduce((n,m) => n + m.content.length,0) > 48000) messages.splice(0,Math.min(2,messages.length-1));
     const data = await api('/api/chat', {method:'POST',body:JSON.stringify({messages,conversation_id:conversation})});
     const answer = data.choices[0].message.content;
+    hideLoading();
     history = [...messages,{role:'assistant',content:answer}]; message(answer);
     $('modelStatus').textContent = 'KI hat geantwortet'; $('gpuStatus').textContent = 'Antwort erhalten';
     $('chatNotice').textContent = data.warning || 'Antwort erhalten. Chatverlauf in D1 gespeichert.';
     if (data.historySaved) loadConversations().catch(() => {});
   } catch (error) {
+    hideLoading();
     message('Keine bestätigte KI-Antwort: ' + error.message);
     $('input').value = text; $('modelStatus').textContent = 'KI-Anfrage fehlgeschlagen';
     $('chatNotice').textContent = 'Anfrage fehlgeschlagen. Eine offline GPU muss manuell gestartet werden. Es erfolgt kein automatischer Neuversuch.';
-  } finally { busy = false; controls(); }
+  } finally { hideLoading(); busy = false; controls(); }
 };
+$('input').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    if (!busy && connected && $('input').value.trim()) $('form').requestSubmit();
+  }
+});
+$('input').addEventListener('input', () => {
+  $('input').style.height = 'auto';
+  $('input').style.height = Math.min($('input').scrollHeight, 140) + 'px';
+});
 $('file').onchange = event => { $('fileStatus').textContent = `${event.target.files.length} Datei(en) ausgewählt – nicht hochgeladen.`; };
 document.querySelectorAll('[data-color]').forEach(button => button.onclick = () => { document.documentElement.style.setProperty('--accent',button.dataset.color); localStorage.setItem('pai_color',button.dataset.color); });
 if (localStorage.getItem('pai_color')) document.documentElement.style.setProperty('--accent',localStorage.getItem('pai_color'));
