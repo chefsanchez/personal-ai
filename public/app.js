@@ -292,6 +292,20 @@ const applyTheme = (theme, manual = false) => {
     localStorage.setItem('pai_theme', activeTheme);
   }
   if (manual) localStorage.setItem('pai_theme_manual', 'true');
+  const badge = $('themeBadge');
+  if (badge) {
+    if (activeTheme === 'bmw-520i') {
+      badge.textContent = '520i HYBRID';
+      badge.title = 'BMW 520i Hybrid Cockpit';
+      badge.hidden = false;
+    } else if (activeTheme === 'ultra-workstation') {
+      badge.textContent = 'WORKSTATION';
+      badge.title = 'Owner Ultra Workstation PC';
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
   document.querySelectorAll('[data-theme-btn]').forEach(btn => {
     btn.classList.toggle('active', (btn.dataset.themeBtn || 'default') === (activeTheme || 'default'));
   });
