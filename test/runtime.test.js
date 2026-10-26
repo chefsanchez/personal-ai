@@ -1,3 +1,4 @@
+import { TERMS_VERSION } from '../src/policy.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
@@ -12,7 +13,7 @@ import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 const root = fileURLToPath(new URL('../',import.meta.url));
 const execute = promisify(execFile);
 const token = 'runtime-test-only-'.repeat(3);
-const migration = (await Promise.all(['0001_memory_and_history.sql','0002_accounts_profiles.sql'].map(name => readFile(new URL('../migrations/' + name, import.meta.url),'utf8')))).join('\n');
+const migration = (await Promise.all(['0001_memory_and_history.sql','0002_accounts_profiles.sql','0003_terms_acceptance.sql'].map(name => readFile(new URL('../migrations/' + name, import.meta.url),'utf8')))).join('\n');
 
 async function bundleFixture() {
   const directory = await mkdtemp(join(tmpdir(),'personal-ai-runtime-'));
@@ -93,12 +94,14 @@ test('workerd: Access-Signaturprüfung und Datenisolation funktionieren in der e
   const sign=subject=>new SignJWT({sub:subject}).setProtectedHeader({alg:'RS256',kid:'runtime-key'}).setIssuer('https://runtime-test.cloudflareaccess.com').setAudience('runtime-audience').setIssuedAt().setExpirationTime('5m').sign(privateKey);
   const headerA={'Cf-Access-Jwt-Assertion':await sign('owner-a')};
   const headerB={'Cf-Access-Jwt-Assertion':await sign('owner-b')};
+  for (const headers of [headerA,headerB]) assert.equal((await dispatch(mf,'/api/terms/accept',{method:'POST',body:{version:TERMS_VERSION},headers})).status,200);
   assert.equal((await dispatch(mf,'/api/memories',{method:'POST',body:{content:'Privater Kontext A'},headers:headerA})).status,201);
   assert.equal((await (await dispatch(mf,'/api/memories',{headers:headerB})).json()).memories.length,0);
   assert.equal((await dispatch(mf,'/api/memories',{headers:{'Cf-Access-Jwt-Assertion':'forged'}})).status,401);
   assert.equal((await dispatch(mf,'/api/memories')).status,401,'APP_TOKEN umgeht Access nicht');
   assert.equal(certRequests,1,'JWKS wird innerhalb der Runtime wiederverwendet');
 });
+
 
 
 

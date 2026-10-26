@@ -1,4 +1,5 @@
 import { authorize, authMode } from './auth.js';
+import { TERMS_VERSION } from './policy.js';
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: {
@@ -190,12 +191,19 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
       const account = await accountFor(env.DB, identity);
       if (account?.status === 'blocked') return json({ error: 'Dein Zugang wurde vom Betreiber gesperrt', code: 'ACCOUNT_BLOCKED' }, 403);
       const admin = isOwner(identity, env);
-      if (url.pathname.startsWith('/api/admin/')) return await adminRoute(request, url, env, identity, admin);
-      if (url.pathname === '/api/profile' && request.method === 'GET') return json(await readProfile(env.DB, account));
+      const termsAccepted = !account || account.terms_version === TERMS_VERSION;
+      if (url.pathname === '/api/terms/accept' && request.method === 'POST') {
+        if (!account) return json({ error: 'Eine persönliche Access-Anmeldung ist erforderlich' }, 403);
+        const body = await readJson(request);
+        if (body.version !== TERMS_VERSION) throw new InputError('Bitte die aktuelle Fassung der Nutzungsbedingungen bestätigen');
+        await env.DB.prepare('UPDATE app_accounts SET terms_version = ?, terms_accepted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(TERMS_VERSION, identity.id).run();
+        return json({ ok: true, termsAccepted: true, termsVersion: TERMS_VERSION });
+      }
       if (url.pathname === '/api/profile/consent' && request.method === 'POST') {
         if (!account) return json({ error: 'Für Profil-Einwilligung ist eine persönliche Access-Anmeldung erforderlich' }, 403);
         const body = await readJson(request);
         if (typeof body.enabled !== 'boolean') throw new InputError('enabled muss true oder false sein');
+        if (!termsAccepted && body.enabled) return json({ error: 'Bitte zuerst die Nutzungsbedingungen lesen und bestätigen', code: 'TERMS_REQUIRED', termsVersion: TERMS_VERSION }, 428);
         const statements = [env.DB.prepare('UPDATE app_accounts SET profile_consent = ?, consent_updated_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?').bind(body.enabled ? 1 : 0, identity.id)];
         if (!body.enabled) statements.push(
           env.DB.prepare('DELETE FROM derived_profiles WHERE session_id = ?').bind(identity.id),
@@ -204,6 +212,9 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
         await env.DB.batch(statements);
         return json({ ok: true, consentEnabled: body.enabled, generationEnabled: false });
       }
+      if (!termsAccepted && url.pathname !== '/api/status') return json({ error: 'Bitte zuerst die Nutzungsbedingungen lesen und bestätigen', code: 'TERMS_REQUIRED', termsVersion: TERMS_VERSION }, 428);
+      if (url.pathname.startsWith('/api/admin/')) return await adminRoute(request, url, env, identity, admin);
+      if (url.pathname === '/api/profile' && request.method === 'GET') return json(await readProfile(env.DB, account));
       if (url.pathname === '/api/status' && request.method === 'GET') {
         try {
           await env.DB.prepare("SELECT id FROM ai_memories WHERE session_id = ? AND category = 'memory' LIMIT 1").bind(identity.id).all();
@@ -212,7 +223,8 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
         } catch { return json({ error: 'D1-Schema nicht bereit. Migrationen prüfen.', code: 'D1_UNAVAILABLE' }, 503); }
         return json({ authenticated: true, authMode: identity.mode, memoryReady: true,
           userId: identity.id, email: identity.email || account?.email || '', isAdmin: admin, profileConsent: Boolean(account?.profile_consent), operatorCanReadChats: true,
-          profileGenerationEnabled: false, modelConfigured: Boolean(env.VLLM_BASE_URL && env.VLLM_API_KEY), modelStatus: 'unchecked' });
+          termsAccepted, termsVersion: TERMS_VERSION, profileGenerationEnabled: false,
+          modelConfigured: Boolean(env.VLLM_BASE_URL && env.VLLM_API_KEY), modelStatus: 'unchecked' });
       }
       if (url.pathname === '/api/memories' && request.method === 'GET') {
         return json(await listMemories(env.DB, identity.id));
@@ -266,10 +278,10 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
         try {
           // Workers supports manual/follow, but rejects redirect:'error'. Never
           // follow upstream redirects with the model provider's bearer secret.
-          const response = await upstream(endpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeout), headers: { Authorization: `Bearer ${env.VLLM_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: env.VLLM_MODEL || 'nvidia/Qwen3.6-35B-A3B-NVFP4', messages, max_tokens: 800, temperature: 0.7 }) });
+          const response = await upstream(endpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeout), headers: { Authorization: `Bearer ${env.VLLM_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': url.origin, 'X-Title': 'Personal AI' }, body: JSON.stringify({ model: env.VLLM_MODEL || 'nvidia/Qwen3.6-35B-A3B-NVFP4', messages, max_tokens: 800, temperature: 0.7 }) });
           if (!response.ok) {
             await response.body?.cancel();
-            return json({ error: response.status === 401 || response.status === 403 ? 'KI-Server lehnt die Server-Anmeldung ab.' : response.status === 429 ? 'KI-Server ist ausgelastet. Später erneut versuchen.' : 'KI-Server ist derzeit nicht verfügbar.', code: 'MODEL_UNAVAILABLE' }, 502);
+            return json({ error: response.status === 401 || response.status === 403 ? 'KI-Server lehnt die Server-Anmeldung ab.' : response.status === 402 ? 'KI-Guthaben aufgebraucht. Bitte Anbieter-Konto prüfen.' : response.status === 429 ? 'KI-Server ist ausgelastet. Später erneut versuchen.' : 'KI-Server ist derzeit nicht verfügbar.', code: 'MODEL_UNAVAILABLE' }, 502);
           }
           const reader = response.body?.getReader();
           if (!reader) throw new Error('empty');

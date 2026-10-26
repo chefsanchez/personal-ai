@@ -8,6 +8,7 @@ function makeNav(id, short = false) {
 makeNav('nav'); makeNav('mobile', true);
 function go(k) {
   if (!names[k]) return;
+  if (k === 'admin' && (!connected || !isAdmin)) return;
   document.body.dataset.view = k;
   document.querySelectorAll('.view').forEach(x => x.classList.toggle('active', x.id === k));
   document.querySelectorAll('button[data-view]').forEach(x => { x.classList.toggle('active', x.dataset.view === k); if (x.dataset.view === k) x.setAttribute('aria-current','page'); else x.removeAttribute('aria-current'); });
@@ -22,6 +23,8 @@ const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&
 let projects = get('projects'), tasks = get('tasks'), memories = [], history = [];
 const legacy = get('memories');
 let token = '', connected = false, busy = false, accessVerified = false;
+let isAdmin = false, termsVersion = '', currentUserId = '';
+let adminSelectedUser = null, adminSelectionEpoch = 0;
 let authEpoch = 0;
 let conversations = [];
 let conversation = localStorage.getItem('pai_conversation') || crypto.randomUUID();
@@ -31,7 +34,25 @@ function controls() {
   $('send').disabled = !connected || busy || !navigator.onLine;
   $('addMemory').disabled = !connected || busy || !navigator.onLine;
   for (const id of ['save','logout','newChat','deleteChat','check','reloadMemory','forgetToken']) $(id).disabled = busy;
-  document.querySelectorAll('[data-rm],[data-conversation]').forEach(button => { button.disabled = busy; });
+  if ($('saveProfileConsent')) $('saveProfileConsent').disabled = busy || !connected || !accessVerified || !navigator.onLine;
+  if ($('profileConsent')) $('profileConsent').disabled = busy || !connected || !accessVerified;
+  if ($('adminBlock')) $('adminBlock').disabled = busy || !connected || !isAdmin || !adminSelectedUser || adminSelectedUser.isAdmin || adminSelectedUser.status === 'blocked';
+  if ($('adminUnblock')) $('adminUnblock').disabled = busy || !connected || !isAdmin || !adminSelectedUser || adminSelectedUser.status === 'active';
+  document.querySelectorAll('[data-rm],[data-conversation],[data-admin-user],[data-admin-conv],[data-admin-delete]').forEach(button => { button.disabled = busy; });
+}
+function clearPrivateViews() {
+  memories = []; history = []; conversations = []; isAdmin = false;
+  adminSelectedUser = null; adminSelectionEpoch++;
+  render(); renderConversations(); $('messages').replaceChildren();
+  if ($('adminNav')) $('adminNav').hidden = true;
+  if ($('profileConsent')) $('profileConsent').checked = false;
+  for (const id of ['profileContent','dailySummaries','adminUsers','adminConversations','adminMessages','adminMemories']) {
+    if ($(id)) { $(id).replaceChildren(); $(id).classList.add('empty'); }
+  }
+  if ($('adminUserTitle')) $('adminUserTitle').textContent = 'Noch kein Konto ausgewählt';
+  if ($('adminStatus')) $('adminStatus').textContent = 'Betreiberanmeldung erforderlich.';
+  if ($('profileStatus')) $('profileStatus').textContent = 'Persönliche Anmeldung erforderlich.';
+  controls();
 }
 function renderFormattedText(container, text) {
   if (!text.includes('```') && !text.includes('`') && !text.includes('**')) {
@@ -50,11 +71,13 @@ function renderFormattedText(container, text) {
         wrap.appendChild(langBadge);
       }
       const copyBtn = document.createElement('button'); copyBtn.className = 'copy-code-btn'; copyBtn.type = 'button'; copyBtn.textContent = 'Kopieren';
-      copyBtn.onclick = () => {
-        navigator.clipboard?.writeText(code).then(() => {
+      copyBtn.onclick = async () => {
+        try {
+          if (!navigator.clipboard) throw Error('Clipboard unavailable');
+          await navigator.clipboard.writeText(code);
           copyBtn.textContent = 'Kopiert!';
           setTimeout(() => { copyBtn.textContent = 'Kopieren'; }, 2000);
-        });
+        } catch { copyBtn.textContent = 'Kopieren nicht verfügbar'; }
       };
       wrap.appendChild(copyBtn);
       const pre = document.createElement('pre'); const codeElem = document.createElement('code');
@@ -150,11 +173,11 @@ async function api(path, options = {}) {
   const data = await response.json();
   if (epoch !== authEpoch) throw Error('Anmeldung wurde geändert. Veraltete Antwort verworfen.');
   if (!response.ok) {
-    if (response.status === 401) {
-      authEpoch++; connected = false; memories = []; history = []; conversations = [];
-      render(); renderConversations(); $('messages').replaceChildren(); controls();
+    if (response.status === 401 || data.code === 'ACCOUNT_BLOCKED' || data.code === 'TERMS_REQUIRED') {
+      authEpoch++; connected = false; clearPrivateViews();
+      if (data.code === 'TERMS_REQUIRED') { termsVersion = data.termsVersion; showTerms(); }
     }
-    throw Error(data.error || 'HTTP ' + response.status);
+    throw Object.assign(Error(data.error || 'HTTP ' + response.status), { code: data.code, status: response.status });
   }
   return data;
 }
@@ -170,7 +193,16 @@ async function health() {
     $('api').textContent = 'Erreichbar';
     const status = await api('/api/status');
     accessVerified = status.authMode === 'access';
-    if ($('adminNav')) $('adminNav').hidden = !status.isAdmin;
+    currentUserId = status.userId || '';
+    termsVersion = status.termsVersion || '';
+    if (accessVerified && status.termsAccepted === false) {
+      clearPrivateViews(); $('manualConnection').hidden = true;
+      $('connectionStatus').textContent = 'Angemeldet. Bitte lies zuerst die Nutzungsbedingungen.';
+      $('chatNotice').textContent = 'Zustimmung zu den Nutzungsbedingungen erforderlich.';
+      showTerms(); return;
+    }
+    isAdmin = Boolean(status.isAdmin);
+    if ($('adminNav')) $('adminNav').hidden = !isAdmin;
     if ($('profileConsent')) $('profileConsent').checked = Boolean(status.profileConsent);
     $('manualConnection').hidden = accessVerified;
     connected = true;
@@ -187,7 +219,7 @@ async function health() {
   } catch (error) {
     connected = false; accessVerified = false; $('manualConnection').hidden = false;
     if ($('adminNav')) $('adminNav').hidden = true;
-    memories = []; history = []; conversations = []; render(); renderConversations(); $('messages').replaceChildren();
+    clearPrivateViews();
     $('health').textContent = error.message; $('connectionStatus').textContent = error.message;
     $('memoryStatus').textContent = 'D1-Erinnerungen konnten nicht geladen werden: ' + error.message;
     $('systemStatus').textContent = 'ANMELDUNG ODER VERBINDUNG PRÜFEN';
@@ -199,13 +231,14 @@ $('save').onclick = async () => {
   try {
     const target = new URL($('url').value.trim());
     if (target.origin !== window.location.origin) throw Error('Öffne die App direkt unter der Worker-URL. Tokens werden nur an dieselbe Website gesendet.');
-    authEpoch++; token = $('app-token').value.trim(); $('app-token').value = ''; await health();
+    authEpoch++; connected = false; clearPrivateViews(); token = $('app-token').value.trim(); $('app-token').value = ''; await health();
   } catch (error) { $('connectionStatus').textContent = error.message; }
 };
 $('forgetToken').onclick = () => { localStorage.removeItem('pai_token'); $('connectionStatus').textContent = 'Alter Browser-Token entfernt. Falls er früher offengelegt wurde, muss er zusätzlich auf Cloudflare rotiert werden.'; };
 $('logout').onclick = () => {
-  authEpoch++; token = ''; connected = false; memories = []; history = []; conversations = []; render(); renderConversations(); $('messages').replaceChildren(); controls();
-  if (accessVerified) window.location.assign('/cdn-cgi/access/logout');
+  const accessLogout = accessVerified;
+  authEpoch++; token = ''; connected = false; accessVerified = false; currentUserId = ''; clearPrivateViews();
+  if (accessLogout) window.location.assign('/cdn-cgi/access/logout');
   else { $('connectionStatus').textContent = 'Abgemeldet. Token aus dem Arbeitsspeicher entfernt.'; $('chatNotice').textContent = 'Abgemeldet.'; }
 };
 $('check').onclick = health;
@@ -270,7 +303,7 @@ $('form').onsubmit = async event => {
   } finally { hideLoading(); busy = false; controls(); }
 };
 $('input').addEventListener('keydown', event => {
-  if (event.key === 'Enter' && !event.shiftKey) {
+  if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     if (!busy && connected && $('input').value.trim()) $('form').requestSubmit();
   }
@@ -283,6 +316,7 @@ $('file').onchange = event => { $('fileStatus').textContent = `${event.target.fi
 document.querySelectorAll('[data-color]').forEach(button => button.onclick = () => { document.documentElement.style.setProperty('--accent',button.dataset.color); localStorage.setItem('pai_color',button.dataset.color); });
 if (localStorage.getItem('pai_color')) document.documentElement.style.setProperty('--accent',localStorage.getItem('pai_color'));
 const applyTheme = (theme, manual = false) => {
+  if (!['default','bmw-520i','ultra-workstation',''].includes(theme || '')) theme = 'default';
   const activeTheme = (!theme || theme === 'default') ? '' : theme;
   if (!activeTheme) {
     delete document.documentElement.dataset.theme;
@@ -349,7 +383,7 @@ window.addEventListener('keydown', event => {
     applyTheme(next, true);
   } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault();
-    if ($('input')) $('input').focus();
+    go('chat'); if ($('input')) $('input').focus();
   }
 });
 if ($('entryCancel')) $('entryCancel').onclick = () => $('entryDialog').close('cancel');
@@ -402,7 +436,6 @@ if ($('saveProfileConsent')) {
   };
 }
 
-let adminSelectedUser = null;
 async function loadAdmin() {
   if (!connected) return;
   try {

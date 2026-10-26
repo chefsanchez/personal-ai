@@ -1,3 +1,4 @@
+import { TERMS_VERSION } from '../src/policy.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -7,7 +8,8 @@ import { generateKeyPair, exportJWK, SignJWT, createLocalJWKSet } from 'jose';
 import { authorize, verifyAccess } from '../src/auth.js';
 
 const token = 'local-test-only-'.repeat(3);
-const migration = (await Promise.all(['0001_memory_and_history.sql','0002_accounts_profiles.sql'].map(name => readFile(new URL('../migrations/' + name, import.meta.url),'utf8')))).join('\n');
+const baselineMigration = await readFile(new URL('../migrations/0001_memory_and_history.sql',import.meta.url),'utf8');
+const migration = (await Promise.all(['0001_memory_and_history.sql','0002_accounts_profiles.sql','0003_terms_acceptance.sql'].map(name => readFile(new URL('../migrations/' + name, import.meta.url),'utf8')))).join('\n');
 const { privateKey, publicKey } = await generateKeyPair('RS256');
 const jwk = { ...await exportJWK(publicKey), kid:'test-key', alg:'RS256', use:'sig' };
 const accessEnv = { ACCESS_TEAM_DOMAIN:'personal-ai-test.cloudflareaccess.com', ACCESS_AUD:'test-audience' };
@@ -58,7 +60,7 @@ test('Öffentlicher Healthcheck gibt keine Modellbereitschaft vor; Auth und CSRF
 test('D1: idempotente Migration, Bestandserhalt, Speichern, Lesen und Löschen', async t => {
   const f = await fixture(t);
   await f.db.prepare("INSERT INTO ai_memories(id,session_id,content,category) VALUES ('old','owner','alter Chat','chat_user')").run();
-  await f.db.batch(migration.split(';').map(s=>s.trim()).filter(Boolean).map(sql=>f.db.prepare(sql)));
+  await f.db.batch(baselineMigration.split(';').map(s=>s.trim()).filter(Boolean).map(sql=>f.db.prepare(sql)));
   const saved = await f.call('/api/memories',{body:{content:'Ich mag grünen Tee.'}}); assert.equal(saved.status,201);
   const {id} = await saved.json();
   assert.equal((await (await f.call('/api/memories')).json()).memories.length,1);
@@ -95,6 +97,7 @@ test('D1: Access-Nutzer sehen und löschen keine fremden Erinnerungen oder Chats
   Object.assign(f.env,accessEnv);
   const headersA = {'Cf-Access-Jwt-Assertion':await jwt('a')};
   const headersB = {'Cf-Access-Jwt-Assertion':await jwt('b')};
+  for (const headers of [headersA,headersB]) assert.equal((await f.call('/api/terms/accept',{body:{version:TERMS_VERSION},headers})).status,200);
   const saved = await (await f.call('/api/memories',{body:{content:'privat A'},headers:headersA})).json();
   assert.equal((await (await f.call('/api/memories',{headers:headersB})).json()).memories.length,0);
   assert.equal((await f.call('/api/memories',{method:'DELETE',body:{id:saved.id},headers:headersB})).status,404);
@@ -202,6 +205,7 @@ test('Profile: Einwilligung speichern, abfragen und Datenbereinigung', async t =
   t.after(() => { globalThis.fetch = original; });
   Object.assign(f.env, accessEnv);
   const headers = { 'Cf-Access-Jwt-Assertion': await jwt('user-consent') };
+  assert.equal((await f.call('/api/terms/accept', { method: 'POST', body: { version: TERMS_VERSION }, headers })).status, 200);
   
   const grant = await f.call('/api/profile/consent', { method: 'POST', body: { enabled: true }, headers });
   assert.equal(grant.status, 200);
@@ -225,6 +229,10 @@ test('Admin: Nur Betreiber darf Nutzerkonten verwalten und sperren', async t => 
   const adminHeaders = { 'Cf-Access-Jwt-Assertion': await jwt('admin-sub') };
   const userHeaders = { 'Cf-Access-Jwt-Assertion': await jwt('regular-user') };
 
+  for (const headers of [adminHeaders, userHeaders]) {
+    assert.equal((await f.call('/api/terms/accept', { method: 'POST', body: { version: TERMS_VERSION }, headers })).status, 200);
+  }
+
   await f.call('/api/status', { headers: userHeaders });
 
   assert.equal((await f.call('/api/admin/users', { headers: userHeaders })).status, 403);
@@ -244,6 +252,7 @@ test('Admin: Nur Betreiber darf Nutzerkonten verwalten und sperren', async t => 
   const blockSelf = await f.call('/api/admin/users/access%3Aadmin-sub', { method: 'PATCH', body: { status: 'blocked' }, headers: adminHeaders });
   assert.equal(blockSelf.status, 403);
 });
+
 
 
 
