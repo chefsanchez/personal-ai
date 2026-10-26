@@ -73,3 +73,12 @@ test('PWA: Standalone-Manifest, App-Icons und keine privaten API-Antworten im Ca
   assert.equal(await page.locator('#send').isDisabled(),true);
   assert.equal(await page.locator('h1').count()>0,true);
 });
+
+test('Legal: legal.html liefert Nutzungsbedingungen und Datenschutz', async t => {
+  const harness = await browserHarness(); t.after(() => harness.close());
+  const res = await fetch(harness.base + '/legal.html');
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.match(text, /Nutzungsbedingungen/);
+  assert.match(text, /Datenschutz/);
+});

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090a0d">
+<meta name="color-scheme" content="dark">
+<title>Nutzungsbedingungen & Datenschutz – Personal AI</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+.legal-container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+  color: #c9d2e3;
+  line-height: 1.8;
+  font-size: 14px;
+}
+.legal-container h1 {
+  font-size: 32px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: -0.03em;
+  margin-bottom: 8px;
+}
+.legal-container h2 {
+  font-size: 20px;
+  font-weight: 550;
+  color: #e4eaf8;
+  margin-top: 36px;
+  margin-bottom: 12px;
+  letter-spacing: -0.02em;
+}
+.legal-container p, .legal-container li {
+  margin-bottom: 14px;
+  color: #a4b2c9;
+}
+.legal-container ul {
+  padding-left: 20px;
+  margin-bottom: 20px;
+}
+.legal-container .back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 28px;
+  color: var(--accent, #9cbaff);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+}
+.legal-container .card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 22px;
+  margin: 24px 0;
+}
+</style>
+</head>
+<body data-view="overview">
+<div class="legal-container">
+  <a class="back-link" href="/">← Zurück zu Personal AI</a>
+  <h1>Nutzungsbedingungen &amp; Datenschutz</h1>
+  <p>Stand: 27. Oktober 2026</p>
+
+  <div class="card">
+    <strong>Transparenzhinweis:</strong>
+    Personal AI ist ein privates, nicht-öffentliches KI-System. Alle Speicher- und Verarbeitungsfunktionen sind nachfolgend offengelegt.
+  </div>
+
+  <h2>1. Datenspeicherung in Cloudflare D1</h2>
+  <ul>
+    <li><strong>Erinnerungen:</strong> Von dir bewusst gespeicherte Fakten werden in der Cloudflare D1-Datenbank (Tabelle <code>ai_memories</code>) dauerhaft hinterlegt und können jederzeit von dir im Menü „Langzeitgedächtnis“ gelöscht werden.</li>
+    <li><strong>Gesprächsverlauf:</strong> Chatnachrichten werden getrennt nach Gesprächsschlüssel in der Tabelle <code>chat_messages</code> gespeichert, um bisherige Unterhaltungen wieder aufrufen zu können. Ein Gespräch kann jederzeit gelöscht werden.</li>
+    <li><strong>Sitzungsisolierung:</strong> Bei Verwendung von Cloudflare Access werden Daten strikt nach deiner persönlichen Identität getrennt. Andere Nutzer haben keinen Zugriff auf deine Erinnerungen oder Chats.</li>
+  </ul>
+
+  <h2>2. Verarbeitung durch Modellanbieter</h2>
+  <p>Deine Nachrichten sowie die für das Verständnis relevanten Erinnerungen werden bei jeder Chat-Anfrage an den konfigurierten Modellserver (z. B. vLLM auf RunPod / Qwen) übertragen, um die Antwort zu erzeugen. Die Serveranmeldung erfolgt serverseitig über gesicherte Secrets ohne Weitergabe sensibler Zugangsdaten an den Browser.</p>
+
+  <h2>3. Kein Training von Modellgewichten</h2>
+  <p>Normale Gespräche verändern keine Modellgewichte und fließen nicht in ein Nachtraining (Fine-Tuning) ein. Erinnerungen dienen ausschließlich als Kontext im Prompt.</p>
+
+  <h2>4. Freiwillige Profile und Zusammenfassungen</h2>
+  <p>Persönliche Profile und Tagesrückblicke sind standardmäßig deaktiviert. Sie werden nur erstellt und in D1 gespeichert, wenn du unter „Persönliches Profil &amp; Privatsphäre“ deine ausdrückliche Einwilligung erteilt hast. Du kannst diese Einwilligung jederzeit widerrufen.</p>
+
+  <h2>5. Betreiberverwaltung</h2>
+  <p>Der private Betreiber der Anwendung hat aus administrativen Gründen technischen Zugriff auf die D1-Datenbank und kann Konten verwalten. Dieser Zugriff ist transparent offengelegt und erfordert serverseitige Betreiberrechte.</p>
+</div>
+</body>
+</html>

@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const names = {overview:'Übersicht',chat:'KI-Chat',projects:'Projekte & Aufgaben',agents:'Agenten & Tools',memory:'Langzeitgedächtnis',files:'Dateien',automations:'Automatisierungen',usage:'Nutzung & Kosten',settings:'Einstellungen',users:'Benutzerverwaltung'};
+const names = {overview:'Übersicht',chat:'KI-Chat',projects:'Projekte & Aufgaben',agents:'Agenten & Tools',memory:'Langzeitgedächtnis',files:'Dateien',automations:'Automatisierungen',usage:'Nutzung & Kosten',settings:'Einstellungen',users:'Benutzerverwaltung',profile:'Persönliches Profil & Privatsphäre',admin:'Betreiberverwaltung'};
 const icons = {overview:'home',chat:'chat',projects:'projects',memory:'memory',settings:'settings'};
 function makeNav(id, short = false) {
   const labels = {overview:'Home',chat:'Chat',memory:'Gedächtnis',projects:'Projekte',settings:'Einstellungen'};
@@ -12,6 +12,8 @@ function go(k) {
   document.querySelectorAll('.view').forEach(x => x.classList.toggle('active', x.id === k));
   document.querySelectorAll('button[data-view]').forEach(x => { x.classList.toggle('active', x.dataset.view === k); if (x.dataset.view === k) x.setAttribute('aria-current','page'); else x.removeAttribute('aria-current'); });
   $('title').textContent = names[k]; window.scrollTo({top:0,behavior:'smooth'});
+  if (k === 'profile') loadProfile();
+  if (k === 'admin') loadAdmin();
 }
 document.addEventListener('click', e => { const button = e.target.closest('[data-view],[data-go]'); if (button) go(button.dataset.view || button.dataset.go); });
 const get = key => { try { const value = JSON.parse(localStorage.getItem('pai_' + key) || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } };
@@ -32,7 +34,17 @@ function controls() {
   document.querySelectorAll('[data-rm],[data-conversation]').forEach(button => { button.disabled = busy; });
 }
 function message(content, role = 'assistant') {
-  const node = document.createElement('div'); node.className = 'msg' + (role === 'user' ? ' user' : ''); node.textContent = content;
+  const node = document.createElement('div'); node.className = 'msg' + (role === 'user' ? ' user' : '');
+  const thinkMatch = role === 'assistant' ? String(content).match(/^<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/) : null;
+  if (thinkMatch) {
+    const details = document.createElement('details'); details.className = 'think-bubble';
+    const summary = document.createElement('summary'); summary.textContent = 'Gedankengang des Modells';
+    const thinkText = document.createElement('div'); thinkText.className = 'think-text'; thinkText.textContent = thinkMatch[1].trim();
+    details.append(summary, thinkText); node.appendChild(details);
+    const textNode = document.createElement('div'); textNode.textContent = thinkMatch[2].trim(); node.appendChild(textNode);
+  } else {
+    node.textContent = content;
+  }
   $('messages').appendChild(node); node.scrollIntoView({block:'nearest'});
 }
 function renderHistory() {
@@ -106,6 +118,8 @@ async function health() {
     $('api').textContent = 'Erreichbar';
     const status = await api('/api/status');
     accessVerified = status.authMode === 'access';
+    if ($('adminNav')) $('adminNav').hidden = !status.isAdmin;
+    if ($('profileConsent')) $('profileConsent').checked = Boolean(status.profileConsent);
     $('manualConnection').hidden = accessVerified;
     connected = true;
     $('connectionStatus').textContent = accessVerified ? 'Cloudflare Access geprüft. Automatische Verbindung mit dieser Website aktiv.' : 'Privater Token-Zugang aktiv. Automatische Access-Anmeldung noch nicht eingerichtet.';
@@ -119,6 +133,7 @@ async function health() {
     const data = await api('/api/history?conversation_id=' + encodeURIComponent(conversation)); history = data.messages; renderHistory();
   } catch (error) {
     connected = false; accessVerified = false; $('manualConnection').hidden = false;
+    if ($('adminNav')) $('adminNav').hidden = true;
     memories = []; history = []; conversations = []; render(); renderConversations(); $('messages').replaceChildren();
     $('health').textContent = error.message; $('connectionStatus').textContent = error.message;
     $('memoryStatus').textContent = 'D1-Erinnerungen konnten nicht geladen werden: ' + error.message;
@@ -217,4 +232,116 @@ function networkStatus() {
 }
 window.addEventListener('online',networkStatus); window.addEventListener('offline',networkStatus); networkStatus();
 if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+async function loadProfile() {
+  if (!connected) return;
+  try {
+    const data = await api('/api/profile');
+    if ($('profileConsent')) $('profileConsent').checked = Boolean(data.consentEnabled);
+    if ($('profileStatus')) $('profileStatus').textContent = data.consentEnabled ? 'Einwilligung erteilt. Profile und Zusammenfassungen werden gespeichert.' : 'Einwilligung nicht erteilt.';
+    if ($('profileContent')) {
+      $('profileContent').textContent = data.profile?.content || 'Noch kein Profil abgeleitet.';
+      $('profileContent').classList.toggle('empty', !data.profile);
+    }
+    if ($('dailySummaries')) {
+      $('dailySummaries').innerHTML = (data.summaries || []).map(s => `<div class="panel"><strong>${esc(s.date)}</strong>: ${esc(s.content)}</div>`).join('') || 'Noch keine Tageszusammenfassungen.';
+      $('dailySummaries').classList.toggle('empty', !(data.summaries && data.summaries.length));
+    }
+  } catch (error) {
+    if ($('profileStatus')) $('profileStatus').textContent = error.message;
+  }
+}
+if ($('saveProfileConsent')) {
+  $('saveProfileConsent').onclick = async () => {
+    if (!connected || busy) return;
+    busy = true; controls();
+    try {
+      const enabled = $('profileConsent').checked;
+      await api('/api/profile/consent', { method: 'POST', body: JSON.stringify({ enabled }) });
+      await loadProfile();
+    } catch (error) {
+      if ($('profileStatus')) $('profileStatus').textContent = error.message;
+    } finally {
+      busy = false; controls();
+    }
+  };
+}
+
+let adminSelectedUser = null;
+async function loadAdmin() {
+  if (!connected) return;
+  try {
+    $('adminStatus').textContent = 'Lade Nutzerkonten …';
+    const data = await api('/api/admin/users');
+    $('adminStatus').textContent = `${data.users.length} Konto/Konten geladen.`;
+    const container = $('adminUsers');
+    container.classList.toggle('empty', !data.users.length);
+    container.innerHTML = data.users.map(u => `<button class="admin-user-btn" data-admin-user="${esc(u.id)}"><strong>${esc(u.email || u.display_name || u.id)}</strong><small>Status: ${esc(u.status)} · ${u.conversation_count} Chats · ${u.memory_count} Erinnerungen</small></button>`).join('') || 'Keine Nutzerkonten gefunden.';
+    container.querySelectorAll('[data-admin-user]').forEach(btn => {
+      btn.onclick = () => selectAdminUser(data.users.find(u => u.id === btn.dataset.adminUser));
+    });
+  } catch (error) {
+    $('adminStatus').textContent = error.message;
+  }
+}
+async function selectAdminUser(user) {
+  if (!user) return;
+  adminSelectedUser = user;
+  $('adminUserTitle').textContent = user.email || user.display_name || user.id;
+  $('adminBlock').disabled = user.status === 'blocked';
+  $('adminUnblock').disabled = user.status === 'active';
+  try {
+    const [convData, memData] = await Promise.all([
+      api(`/api/admin/users/${encodeURIComponent(user.id)}/conversations`),
+      api(`/api/admin/users/${encodeURIComponent(user.id)}/memories`)
+    ]);
+    const convBox = $('adminConversations');
+    convBox.classList.toggle('empty', !convData.conversations.length);
+    convBox.innerHTML = convData.conversations.map(c => `<button data-admin-conv="${esc(c.id)}"><strong>${esc(c.title || 'Gespräch')}</strong><small>${c.message_count} Nachrichten</small></button>`).join('') || 'Keine Gespräche vorhanden.';
+    convBox.querySelectorAll('[data-admin-conv]').forEach(b => {
+      b.onclick = async () => {
+        const histData = await api(`/api/admin/users/${encodeURIComponent(user.id)}/history?conversation_id=${encodeURIComponent(b.dataset.adminConv)}`);
+        const msgBox = $('adminMessages');
+        msgBox.classList.toggle('empty', !histData.messages.length);
+        msgBox.innerHTML = histData.messages.map(m => `<div class="msg ${m.role === 'user' ? 'user' : ''}">${esc(m.content)}</div>`).join('') || 'Keine Nachrichten.';
+      };
+    });
+    const memBox = $('adminMemories');
+    memBox.classList.toggle('empty', !memData.memories.length);
+    memBox.innerHTML = memData.memories.map(m => `<div class="panel">${esc(m.content)}</div>`).join('') || 'Keine Erinnerungen.';
+  } catch (error) {
+    $('adminStatus').textContent = error.message;
+  }
+}
+if ($('adminBlock')) {
+  $('adminBlock').onclick = async () => {
+    if (!adminSelectedUser || busy) return;
+    busy = true; controls();
+    try {
+      await api(`/api/admin/users/${encodeURIComponent(adminSelectedUser.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'blocked' }) });
+      await loadAdmin();
+      if (adminSelectedUser) selectAdminUser({ ...adminSelectedUser, status: 'blocked' });
+    } catch (e) { $('adminStatus').textContent = e.message; }
+    finally { busy = false; controls(); }
+  };
+}
+if ($('adminUnblock')) {
+  $('adminUnblock').onclick = async () => {
+    if (!adminSelectedUser || busy) return;
+    busy = true; controls();
+    try {
+      await api(`/api/admin/users/${encodeURIComponent(adminSelectedUser.id)}`, { method: 'PATCH', body: JSON.stringify({ status: 'active' }) });
+      await loadAdmin();
+      if (adminSelectedUser) selectAdminUser({ ...adminSelectedUser, status: 'active' });
+    } catch (e) { $('adminStatus').textContent = e.message; }
+    finally { busy = false; controls(); }
+  };
+}
+
+const termsDialog = $('termsDialog');
+const declinedDialog = $('declinedTermsDialog');
+if ($('acceptTerms')) $('acceptTerms').onclick = () => { localStorage.setItem('pai_terms', 'accepted'); termsDialog?.close(); };
+if ($('declineTerms')) $('declineTerms').onclick = () => { termsDialog?.close(); declinedDialog?.showModal(); };
+if ($('reconsiderTerms')) $('reconsiderTerms').onclick = () => { declinedDialog?.close(); termsDialog?.showModal(); };
+if ($('leaveTerms')) $('leaveTerms').onclick = () => { declinedDialog?.close(); $('logout')?.click(); };
+
 render(); renderConversations(); go('overview'); health();

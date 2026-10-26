@@ -188,6 +188,63 @@ test('Gespeicherte Chats sind geräteübergreifend auffindbar und nach Aktivitä
   assert.deepEqual((await (await f.call('/api/conversations')).json()).conversations.map(c=>c.id),['chat-b']);
 });
 
+test('Profile: Einwilligung speichern, abfragen und Datenbereinigung', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.call('/api/profile')).status, 200);
+  const tokenProfile = await (await f.call('/api/profile')).json();
+  assert.equal(tokenProfile.consentEnabled, false);
+  
+  const tokenConsent = await f.call('/api/profile/consent', { method: 'POST', body: { enabled: true } });
+  assert.equal(tokenConsent.status, 403);
+
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ keys: [jwk] });
+  t.after(() => { globalThis.fetch = original; });
+  Object.assign(f.env, accessEnv);
+  const headers = { 'Cf-Access-Jwt-Assertion': await jwt('user-consent') };
+  
+  const grant = await f.call('/api/profile/consent', { method: 'POST', body: { enabled: true }, headers });
+  assert.equal(grant.status, 200);
+  assert.equal((await grant.json()).consentEnabled, true);
+
+  const profile = await (await f.call('/api/profile', { headers })).json();
+  assert.equal(profile.consentEnabled, true);
+
+  const revoke = await f.call('/api/profile/consent', { method: 'POST', body: { enabled: false }, headers });
+  assert.equal(revoke.status, 200);
+  assert.equal((await revoke.json()).consentEnabled, false);
+});
+
+test('Admin: Nur Betreiber darf Nutzerkonten verwalten und sperren', async t => {
+  const f = await fixture(t);
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ keys: [jwk] });
+  t.after(() => { globalThis.fetch = original; });
+  Object.assign(f.env, { ...accessEnv, OWNER_ACCESS_SUB: 'admin-sub' });
+
+  const adminHeaders = { 'Cf-Access-Jwt-Assertion': await jwt('admin-sub') };
+  const userHeaders = { 'Cf-Access-Jwt-Assertion': await jwt('regular-user') };
+
+  await f.call('/api/status', { headers: userHeaders });
+
+  assert.equal((await f.call('/api/admin/users', { headers: userHeaders })).status, 403);
+
+  const listRes = await f.call('/api/admin/users', { headers: adminHeaders });
+  assert.equal(listRes.status, 200);
+  const users = (await listRes.json()).users;
+  assert.equal(users.some(u => u.id === 'access:regular-user'), true);
+
+  const blockRes = await f.call('/api/admin/users/access%3Aregular-user', { method: 'PATCH', body: { status: 'blocked' }, headers: adminHeaders });
+  assert.equal(blockRes.status, 200);
+
+  const blockedStatus = await f.call('/api/status', { headers: userHeaders });
+  assert.equal(blockedStatus.status, 403);
+  assert.equal((await blockedStatus.json()).code, 'ACCOUNT_BLOCKED');
+
+  const blockSelf = await f.call('/api/admin/users/access%3Aadmin-sub', { method: 'PATCH', body: { status: 'blocked' }, headers: adminHeaders });
+  assert.equal(blockSelf.status, 403);
+});
+
 
 
 
