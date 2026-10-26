@@ -1,8 +1,11 @@
-
 name = "personal-ai"
 main = "src/index.js"
 compatibility_date = "2026-10-21"
 keep_vars = true
+
+[vars]
+VLLM_BASE_URL = "https://f1cf2041wgp4d4-8000.proxy.runpod.net"
+VLLM_MODEL = "nvidia/Qwen3.6-35B-A3B-NVFP4"
 
 [[d1_databases]]
 binding = "DB"
