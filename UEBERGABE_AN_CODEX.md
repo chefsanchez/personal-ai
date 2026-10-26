@@ -42,6 +42,7 @@
    - **Betreiberverwaltung**: `loadAdmin()`, `selectAdminUser()`, `adminBlock` und `adminUnblock` für `/api/admin/*` verdrahtet.
    - **Bedingungs-Dialog**: Event-Listener für `acceptTerms`, `declineTerms`, `reconsiderTerms` und `leaveTerms` angebunden.
    - **Qwen Denkvorgang `<think>`**: Modell-Reasoning-Blöcke (`<think>...</think>`) werden im Chat automatisch als einklappbares Accordion ("Gedankengang des Modells") formatiert.
+   - **Chat UX & Markdown**: Enter sendet Nachrichten direkt (Shift+Enter für Zeilenumbruch), Textarea passt Höhe dynamisch an (auto-grow), pulsierende Ladeanzeige ("KI denkt nach …") während des Modellaufrufs, sicheres Markdown-Rendering für Code-Blöcke mit "Kopieren"-Button und Inline-Code.
    - **Service Worker Cache**: Auf `personal-ai-shell-v0.4.1` aktualisiert.
 
 6. **Vollständige Testabdeckung**:
