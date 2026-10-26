@@ -1,0 +1,12 @@
+# Beispiel, keine echten Zugangsdaten. Setup-Local.ps1 erzeugt .dev.vars nur neu.
+APP_TOKEN="replace-with-a-random-local-token-at-least-32-characters"
+
+# Erst nach bewusster Einrichtung eines erreichbaren Modellservers ergänzen:
+# VLLM_BASE_URL="https://your-model-endpoint.example"
+# VLLM_API_KEY="server-side-secret-only"
+# VLLM_MODEL="nvidia/Qwen3.6-35B-A3B-NVFP4"
+
+# Für Produktion nach Einrichtung und Prüfung von Cloudflare Access:
+# ACCESS_TEAM_DOMAIN="your-team.cloudflareaccess.com"
+# ACCESS_AUD="your-access-application-audience"
+# OWNER_ACCESS_SUB="exact-sub-from-the-owners-verified-access-jwt-not-an-email"
