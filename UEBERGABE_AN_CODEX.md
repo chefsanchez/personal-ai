@@ -36,7 +36,12 @@
    - Bestehende Secrets (`APP_TOKEN`, `VLLM_API_KEY`) wurden via `keep_vars = true` beibehalten.
    - Live-Healthcheck bestätigt: `Version: 0.4.0; D1-Bindung: True; Anmeldung konfiguriert: True`.
 
-5. **Frontend-Vervollständigung**:
+5. **Exklusive UI-Themes (Workstation & BMW 520i Hybrid Cockpit)**:
+   - **Ultra Workstation (Owner-PC)**: Cyberpunk-inspiriertes Deep-Slate & Violett-Glow-Design für Desktop/PC-Power-User (`data-theme="ultra-workstation"`).
+   - **BMW 520i Hybrid Cockpit (für Kollege Erik)**: Maßgeschneidertes High-End Hybrid-Cockpit in BMW-M- und Electric-Cyan-Akzenten (`data-theme="bmw-520i"`), abgestimmt auf Eriks Auto.
+   - **Design-Umschalter**: Im Einstellungsmenü unter *Spezial-Design* umschaltbar und mit `pai_theme` dauerhaft im `localStorage` gespeichert.
+
+6. **Frontend-Vervollständigung**:
    - **Rechtliches & Datenschutz**: [`public/legal.html`](file:///c:/Users/lange/Documents/ChatGPT/ai/personal-ai/public/legal.html) erstellt und als statisches Asset bereitgestellt (verhindert 404).
    - **Navigation & Profil-Consent**: `profile` und `admin` in die Navigationslogik (`names`) integriert. `loadProfile()` und `saveProfileConsent` an `/api/profile` und `/api/profile/consent` angebunden.
    - **Betreiberverwaltung**: `loadAdmin()`, `selectAdminUser()`, `adminBlock` und `adminUnblock` für `/api/admin/*` verdrahtet.
@@ -45,11 +50,11 @@
    - **Chat UX & Markdown**: Enter sendet Nachrichten direkt (Shift+Enter für Zeilenumbruch), Textarea passt Höhe dynamisch an (auto-grow), pulsierende Ladeanzeige ("KI denkt nach …") während des Modellaufrufs, sicheres Markdown-Rendering für Code-Blöcke mit "Kopieren"-Button und Inline-Code.
    - **Service Worker Cache**: Auf `personal-ai-shell-v0.4.1` aktualisiert.
 
-6. **Vollständige Testabdeckung**:
+7. **Vollständige Testabdeckung**:
    - Die Test-Suite umfasst nun **20 Tests** (inkl. Profil-Einwilligung, Betreiber-Verwaltung, Isolation und `legal.html`).
    - Alle 20 Tests laufen 100 % grün durch (`npm test`).
 
-7. **Git & GitHub**:
+8. **Git & GitHub**:
    - Alle Änderungen liegen sauber committed auf dem Branch `codex/windows-setup-chat-memory` und sind bereits zu GitHub synchronisiert (`origin/codex/windows-setup-chat-memory`).
 
 ---
@@ -96,7 +101,20 @@
 
 ---
 
-## 4. Wichtigste Befehle
+## 4. Zeit- und Aufwandskalkulation bis zur vollständigen Fertigstellung
+
+| Phase / Meilenstein | Geschätzter Zeitaufwand | Benötigte Voraussetzungen / Aktionen |
+|---|---|---|
+| **Phase 1: Live-Chat & Memory Smoke-Test** | **15 – 25 Minuten** | Nutzer startet RunPod Pod manuell, 2-3 Testprompts senden, D1-Speicherung verifizieren, Pod sofort wieder stoppen. |
+| **Phase 2: Merge in `main` & GitHub Release** | **5 – 10 Minuten** | `git checkout main`, `git merge codex/windows-setup-chat-memory`, Push auf GitHub. |
+| **Phase 3: Rollen- und Benutzerspezifisches UI (Autodetect)** | **30 – 45 Minuten** | Erik automatisch das BMW 520i Design anhand seiner E-Mail / seines Logins zuweisen, Owner standardmäßig im Workstation-Modus. |
+| **Phase 4: Cloudflare Access Zero-Trust Aktivierung** | **30 – 45 Minuten** | Einmaliges Anlegen der Zero Trust Application im Cloudflare Dashboard (Klick-Aufwand Nutzer: ca. 10 Min, Einbinden der Secrets: 5 Min). |
+| **Phase 5: Feinpolitur & Langzeit-Gedächtnis-Optimierung** | **30 – 45 Minuten** | Automatisches Einpflegen von Tageszusammenfassungen in D1 (`daily_summaries`), Feinabstimmung System-Prompt. |
+| **GESAMTER RESTAUFWAND** | **ca. 1 Stunde 50 Minuten bis 2,5 Stunden** | **Projekt steht bereits bei ~85 % Fertigstellung.** |
+
+---
+
+## 5. Wichtigste Befehle
 
 ```powershell
 # Tests ausführen
