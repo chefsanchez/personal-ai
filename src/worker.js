@@ -211,7 +211,7 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
           await env.DB.prepare('SELECT scope FROM request_limits LIMIT 0').all();
         } catch { return json({ error: 'D1-Schema nicht bereit. Migrationen prüfen.', code: 'D1_UNAVAILABLE' }, 503); }
         return json({ authenticated: true, authMode: identity.mode, memoryReady: true,
-          userId: identity.id, isAdmin: admin, profileConsent: Boolean(account?.profile_consent), operatorCanReadChats: true,
+          userId: identity.id, email: identity.email || account?.email || '', isAdmin: admin, profileConsent: Boolean(account?.profile_consent), operatorCanReadChats: true,
           profileGenerationEnabled: false, modelConfigured: Boolean(env.VLLM_BASE_URL && env.VLLM_API_KEY), modelStatus: 'unchecked' });
       }
       if (url.pathname === '/api/memories' && request.method === 'GET') {

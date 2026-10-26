@@ -174,6 +174,7 @@ async function health() {
     if ($('profileConsent')) $('profileConsent').checked = Boolean(status.profileConsent);
     $('manualConnection').hidden = accessVerified;
     connected = true;
+    autoDetectTheme(status);
     $('connectionStatus').textContent = accessVerified ? 'Cloudflare Access geprüft. Automatische Verbindung mit dieser Website aktiv.' : 'Privater Token-Zugang aktiv. Automatische Access-Anmeldung noch nicht eingerichtet.';
     $('health').textContent = `${h.name} · Version ${h.version} · D1 erreichbar · Modell ${status.modelConfigured ? 'konfiguriert, Erreichbarkeit ungeprüft' : 'nicht konfiguriert'}`;
     $('modelStatus').textContent = status.modelConfigured ? 'KI ungeprüft' : 'KI nicht konfiguriert';
@@ -281,7 +282,7 @@ $('input').addEventListener('input', () => {
 $('file').onchange = event => { $('fileStatus').textContent = `${event.target.files.length} Datei(en) ausgewählt – nicht hochgeladen.`; };
 document.querySelectorAll('[data-color]').forEach(button => button.onclick = () => { document.documentElement.style.setProperty('--accent',button.dataset.color); localStorage.setItem('pai_color',button.dataset.color); });
 if (localStorage.getItem('pai_color')) document.documentElement.style.setProperty('--accent',localStorage.getItem('pai_color'));
-const applyTheme = (theme) => {
+const applyTheme = (theme, manual = false) => {
   const activeTheme = (!theme || theme === 'default') ? '' : theme;
   if (!activeTheme) {
     delete document.documentElement.dataset.theme;
@@ -290,14 +291,53 @@ const applyTheme = (theme) => {
     document.documentElement.dataset.theme = activeTheme;
     localStorage.setItem('pai_theme', activeTheme);
   }
+  if (manual) localStorage.setItem('pai_theme_manual', 'true');
   document.querySelectorAll('[data-theme-btn]').forEach(btn => {
     btn.classList.toggle('active', (btn.dataset.themeBtn || 'default') === (activeTheme || 'default'));
   });
 };
+const autoDetectTheme = (status) => {
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const forcedTheme = urlParams.get('theme');
+    if (forcedTheme) {
+      applyTheme(forcedTheme, true);
+      return;
+    }
+    if (localStorage.getItem('pai_theme_manual') === 'true') {
+      applyTheme(localStorage.getItem('pai_theme') || 'default', false);
+      return;
+    }
+    const email = (status?.email || '').toLowerCase();
+    const userId = (status?.userId || '').toLowerCase();
+    const queryUser = (urlParams.get('user') || '').toLowerCase();
+    if (email.includes('erik') || userId.includes('erik') || queryUser.includes('erik')) {
+      applyTheme('bmw-520i', false);
+    } else if (status?.isAdmin) {
+      applyTheme('ultra-workstation', false);
+    } else {
+      applyTheme('default', false);
+    }
+  } catch {
+    applyTheme(localStorage.getItem('pai_theme') || 'default', false);
+  }
+};
 document.querySelectorAll('[data-theme-btn]').forEach(btn => {
-  btn.onclick = () => applyTheme(btn.dataset.themeBtn);
+  btn.onclick = () => applyTheme(btn.dataset.themeBtn, true);
 });
-applyTheme(localStorage.getItem('pai_theme') || 'default');
+autoDetectTheme();
+window.addEventListener('keydown', event => {
+  if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'l') {
+    event.preventDefault();
+    const themes = ['default', 'bmw-520i', 'ultra-workstation'];
+    const current = document.documentElement.dataset.theme || 'default';
+    const next = themes[(themes.indexOf(current) + 1) % themes.length];
+    applyTheme(next, true);
+  } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    if ($('input')) $('input').focus();
+  }
+});
 if ($('entryCancel')) $('entryCancel').onclick = () => $('entryDialog').close('cancel');
 if ($('entryForm')) $('entryForm').onsubmit = event => { event.preventDefault(); $('entryDialog').close('save'); };
 if ($('exportChat')) $('exportChat').onclick = () => download('personal-ai-chat.json', {conversation_id:conversation,messages:history});
