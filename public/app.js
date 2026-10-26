@@ -281,6 +281,23 @@ $('input').addEventListener('input', () => {
 $('file').onchange = event => { $('fileStatus').textContent = `${event.target.files.length} Datei(en) ausgewählt – nicht hochgeladen.`; };
 document.querySelectorAll('[data-color]').forEach(button => button.onclick = () => { document.documentElement.style.setProperty('--accent',button.dataset.color); localStorage.setItem('pai_color',button.dataset.color); });
 if (localStorage.getItem('pai_color')) document.documentElement.style.setProperty('--accent',localStorage.getItem('pai_color'));
+const applyTheme = (theme) => {
+  const activeTheme = (!theme || theme === 'default') ? '' : theme;
+  if (!activeTheme) {
+    delete document.documentElement.dataset.theme;
+    localStorage.removeItem('pai_theme');
+  } else {
+    document.documentElement.dataset.theme = activeTheme;
+    localStorage.setItem('pai_theme', activeTheme);
+  }
+  document.querySelectorAll('[data-theme-btn]').forEach(btn => {
+    btn.classList.toggle('active', (btn.dataset.themeBtn || 'default') === (activeTheme || 'default'));
+  });
+};
+document.querySelectorAll('[data-theme-btn]').forEach(btn => {
+  btn.onclick = () => applyTheme(btn.dataset.themeBtn);
+});
+applyTheme(localStorage.getItem('pai_theme') || 'default');
 if ($('entryCancel')) $('entryCancel').onclick = () => $('entryDialog').close('cancel');
 if ($('entryForm')) $('entryForm').onsubmit = event => { event.preventDefault(); $('entryDialog').close('save'); };
 if ($('exportChat')) $('exportChat').onclick = () => download('personal-ai-chat.json', {conversation_id:conversation,messages:history});
