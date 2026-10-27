@@ -6,6 +6,7 @@ function makeNav(id, short = false) {
   $(id).innerHTML = ['overview','chat','memory','projects','settings'].map(k => `<button data-view="${k}" aria-label="${names[k]}"><svg class="nav-icon" aria-hidden="true"><use href="#i-${icons[k]}"></use></svg><span class="nav-label">${labels[k]}</span></button>`).join('');
 }
 makeNav('nav'); makeNav('mobile', true);
+
 function go(k) {
   if (!names[k]) return;
   if (k === 'admin' && (!connected || !isAdmin)) return;
@@ -15,6 +16,7 @@ function go(k) {
   $('title').textContent = names[k]; window.scrollTo({top:0,behavior:'smooth'});
   if (k === 'profile') loadProfile();
   if (k === 'admin') loadAdmin();
+  if (k === 'memory' && isAdmin && $('masterMemoriesPanel') && !$('masterMemoriesPanel').hidden) loadMasterMemories();
 }
 document.addEventListener('click', e => { const button = e.target.closest('[data-view],[data-go]'); if (button) go(button.dataset.view || button.dataset.go); });
 const get = key => { try { const value = JSON.parse(localStorage.getItem('pai_' + key) || '[]'); return Array.isArray(value) ? value : []; } catch { return []; } };
@@ -22,38 +24,53 @@ const put = (key, value) => localStorage.setItem('pai_' + key, JSON.stringify(va
 const esc = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let projects = get('projects'), tasks = get('tasks'), memories = [], history = [];
 const legacy = get('memories');
-let token = '', connected = false, busy = false, accessVerified = false;
+let token = localStorage.getItem('pai_token') || '', connected = false, busy = false, accessVerified = false;
 let isAdmin = false, termsVersion = '', currentUserId = '';
 let adminSelectedUser = null, adminSelectionEpoch = 0;
 let authEpoch = 0;
 let conversations = [];
 let conversation = localStorage.getItem('pai_conversation') || crypto.randomUUID();
 localStorage.setItem('pai_conversation', conversation);
-$('url').value = window.location.origin;
+if ($('url')) $('url').value = window.location.origin;
+
 function controls() {
   $('send').disabled = !connected || busy || !navigator.onLine;
   $('addMemory').disabled = !connected || busy || !navigator.onLine;
-  for (const id of ['save','logout','newChat','deleteChat','check','reloadMemory','forgetToken']) $(id).disabled = busy;
+  if ($('quickMemorySubmit')) $('quickMemorySubmit').disabled = !connected || busy || !navigator.onLine;
+  for (const id of ['save','logout','newChat','sideNewChat','deleteChat','check','reloadMemory','reloadMasterMemories','forgetToken']) {
+    if ($(id)) $(id).disabled = busy;
+  }
   if ($('saveProfileConsent')) $('saveProfileConsent').disabled = busy || !connected || !accessVerified || !navigator.onLine;
   if ($('profileConsent')) $('profileConsent').disabled = busy || !connected || !accessVerified;
   if ($('adminBlock')) $('adminBlock').disabled = busy || !connected || !isAdmin || !adminSelectedUser || adminSelectedUser.isAdmin || adminSelectedUser.status === 'blocked';
   if ($('adminUnblock')) $('adminUnblock').disabled = busy || !connected || !isAdmin || !adminSelectedUser || adminSelectedUser.status === 'active';
-  document.querySelectorAll('[data-rm],[data-conversation],[data-admin-user],[data-admin-conv],[data-admin-delete]').forEach(button => { button.disabled = busy; });
+  document.querySelectorAll('[data-rm],[data-conversation],[data-admin-user],[data-admin-conv],[data-admin-delete],[data-master-del]').forEach(button => { button.disabled = busy; });
 }
+
+function updateProfileDisplay(status) {
+  if ($('sideUserName')) $('sideUserName').textContent = status?.email || (status?.isAdmin ? 'Philipp (Betreiber)' : 'Personal AI');
+  if ($('sideUserRole')) $('sideUserRole').textContent = status?.isAdmin ? '👑 Master Admin' : (status?.email ? 'Angemeldeter Nutzer' : 'Dein persönlicher Raum');
+  if ($('sideAvatar')) $('sideAvatar').textContent = status?.isAdmin ? '👑' : (status?.email ? status.email.charAt(0).toUpperCase() : 'P');
+}
+
 function clearPrivateViews() {
   memories = []; history = []; conversations = []; isAdmin = false;
   adminSelectedUser = null; adminSelectionEpoch++;
   render(); renderConversations(); $('messages').replaceChildren();
   if ($('adminNav')) $('adminNav').hidden = true;
+  if ($('adminMasterWrap')) $('adminMasterWrap').hidden = true;
+  if ($('masterMemoriesPanel')) $('masterMemoriesPanel').hidden = true;
   if ($('profileConsent')) $('profileConsent').checked = false;
-  for (const id of ['profileContent','dailySummaries','adminUsers','adminConversations','adminMessages','adminMemories']) {
+  for (const id of ['profileContent','dailySummaries','adminUsers','adminConversations','adminMessages','adminMemories','masterMemoriesList']) {
     if ($(id)) { $(id).replaceChildren(); $(id).classList.add('empty'); }
   }
   if ($('adminUserTitle')) $('adminUserTitle').textContent = 'Noch kein Konto ausgewählt';
   if ($('adminStatus')) $('adminStatus').textContent = 'Betreiberanmeldung erforderlich.';
   if ($('profileStatus')) $('profileStatus').textContent = 'Persönliche Anmeldung erforderlich.';
+  updateProfileDisplay(null);
   controls();
 }
+
 function renderFormattedText(container, text) {
   if (!text.includes('```') && !text.includes('`') && !text.includes('**')) {
     container.textContent = text;
@@ -75,7 +92,7 @@ function renderFormattedText(container, text) {
         try {
           if (!navigator.clipboard) throw Error('Clipboard unavailable');
           await navigator.clipboard.writeText(code);
-          copyBtn.textContent = 'Kopiert!';
+          copyBtn.textContent = '✓ Kopiert!';
           setTimeout(() => { copyBtn.textContent = 'Kopieren'; }, 2000);
         } catch { copyBtn.textContent = 'Kopieren nicht verfügbar'; }
       };
@@ -94,6 +111,7 @@ function renderFormattedText(container, text) {
     }
   }
 }
+
 let loadingNode = null;
 function showLoading() {
   hideLoading();
@@ -104,29 +122,215 @@ function showLoading() {
 function hideLoading() {
   if (loadingNode) { loadingNode.remove(); loadingNode = null; }
 }
-function message(content, role = 'assistant') {
-  const node = document.createElement('div'); node.className = 'msg' + (role === 'user' ? ' user' : '');
+
+function extractChoices(text) {
+  const choices = [];
+  // Pattern 1: [1] Option or [A] Option or [Option text]
+  const bracketMatches = [...text.matchAll(/\[([0-9A-Za-z]|.+?)\]\s*([^ \n\r][^\n\r]{1,80})/g)];
+  if (bracketMatches.length >= 2) {
+    for (const m of bracketMatches.slice(0, 6)) {
+      const opt = (m[2] || m[1]).trim();
+      if (opt && opt.length < 90 && !choices.includes(opt)) choices.push(opt);
+    }
+  }
+  // Pattern 2: Numbered list items like "1. Option" or "1) Option"
+  if (choices.length < 2) {
+    const numMatches = [...text.matchAll(/(?:^|\n)\s*(?:[1-9]\.|\b[1-9]\))\s+([^\n\r]{2,80})/g)];
+    if (numMatches.length >= 2) {
+      for (const m of numMatches.slice(0, 5)) {
+        const opt = m[1].trim();
+        if (opt && opt.length < 80 && !choices.includes(opt)) choices.push(opt);
+      }
+    }
+  }
+  // Pattern 3: Letter list items like "A) Option" or "a. Option"
+  if (choices.length < 2) {
+    const letterMatches = [...text.matchAll(/(?:^|\n)\s*(?:[A-D]\)|\b[A-D]\.)\s+([^\n\r]{2,80})/g)];
+    if (letterMatches.length >= 2) {
+      for (const m of letterMatches.slice(0, 4)) {
+        const opt = m[1].trim();
+        if (opt && opt.length < 80 && !choices.includes(opt)) choices.push(opt);
+      }
+    }
+  }
+  return choices;
+}
+
+function getFollowUpSuggestions(content) {
+  const lower = content.toLowerCase();
+  if (lower.includes('code') || lower.includes('funktion') || lower.includes('const') || lower.includes('def ')) {
+    return ['⚡ Code erklären', '🧪 Tests schreiben', '🚀 Code optimieren'];
+  }
+  if (lower.includes('schritt') || lower.includes('tipp') || lower.includes('anleitung')) {
+    return ['💡 Nächster Schritt', '⚡ Zusammenfassen', '❓ Fragen klären'];
+  }
+  return ['💡 Mehr Details', '⚡ Schneller zusammenfassen', '🎯 Konkretes Beispiel'];
+}
+
+function message(content, role = 'assistant', isHistoryItem = false) {
+  const msgRow = document.createElement('div');
+  msgRow.className = 'msg-row ' + (role === 'user' ? 'user-row' : 'bot-row');
+
+  if (role === 'assistant') {
+    const avatar = document.createElement('div');
+    avatar.className = 'bot-avatar';
+    avatar.innerHTML = '<span class="avatar-spark">✦</span>';
+    msgRow.appendChild(avatar);
+  }
+
+  const node = document.createElement('div');
+  node.className = 'msg' + (role === 'user' ? ' user' : '');
+
   const thinkMatch = role === 'assistant' ? String(content).match(/^<think>([\s\S]*?)<\/think>\s*([\s\S]*)$/) : null;
+  const mainContent = thinkMatch ? thinkMatch[2].trim() : content;
+
   if (thinkMatch) {
     const details = document.createElement('details'); details.className = 'think-bubble';
     const summary = document.createElement('summary'); summary.textContent = 'Gedankengang des Modells';
     const thinkText = document.createElement('div'); thinkText.className = 'think-text'; thinkText.textContent = thinkMatch[1].trim();
     details.append(summary, thinkText); node.appendChild(details);
     const textNode = document.createElement('div');
-    renderFormattedText(textNode, thinkMatch[2].trim());
+    renderFormattedText(textNode, mainContent);
     node.appendChild(textNode);
   } else if (role === 'assistant') {
-    renderFormattedText(node, content);
+    renderFormattedText(node, mainContent);
   } else {
     node.textContent = content;
   }
-  $('messages').appendChild(node); node.scrollIntoView({block:'nearest'});
+
+  // Interactive Multiple Choice Pills & Quick Reply Buttons for bot
+  if (role === 'assistant') {
+    const choices = extractChoices(mainContent);
+    if (choices.length >= 2) {
+      const choicesWrap = document.createElement('div');
+      choicesWrap.className = 'choice-pills-row';
+      const heading = document.createElement('span');
+      heading.className = 'choice-kicker';
+      heading.textContent = '🎯 Schnellauswahl:';
+      choicesWrap.appendChild(heading);
+
+      for (const choice of choices) {
+        const pill = document.createElement('button');
+        pill.className = 'choice-pill glass';
+        pill.type = 'button';
+        pill.innerHTML = `<span>${esc(choice)}</span><span class="pill-arrow">→</span>`;
+        pill.onclick = () => {
+          if (busy || !connected) return;
+          $('input').value = choice;
+          $('form').requestSubmit();
+        };
+        choicesWrap.appendChild(pill);
+      }
+      node.appendChild(choicesWrap);
+    }
+
+    // Message Actions Bar (1-Click Copy & Regenerate)
+    const actionRow = document.createElement('div');
+    actionRow.className = 'msg-actions-row';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'msg-action-btn';
+    copyBtn.type = 'button';
+    copyBtn.title = 'Nachricht kopieren';
+    copyBtn.innerHTML = '<svg class="mini-icon" aria-hidden="true"><use href="#i-projects"></use></svg><span>Kopieren</span>';
+    copyBtn.onclick = async () => {
+      try {
+        if (!navigator.clipboard) throw Error('Clipboard unavailable');
+        await navigator.clipboard.writeText(mainContent);
+        copyBtn.innerHTML = '<span class="check-mark">✓</span><span>Kopiert!</span>';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg class="mini-icon" aria-hidden="true"><use href="#i-projects"></use></svg><span>Kopieren</span>';
+        }, 2000);
+      } catch {
+        copyBtn.textContent = 'Kopieren nicht verfügbar';
+      }
+    };
+    actionRow.appendChild(copyBtn);
+
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'msg-action-btn regen-btn';
+    regenBtn.type = 'button';
+    regenBtn.title = 'Antwort neu generieren';
+    regenBtn.innerHTML = '<svg class="mini-icon" aria-hidden="true"><use href="#i-refresh"></use></svg><span>Neu generieren</span>';
+    regenBtn.onclick = async () => {
+      if (busy || !connected) return;
+      const lastUserMsg = [...history].reverse().find(m => m.role === 'user');
+      if (!lastUserMsg) return;
+      if (history.length && history[history.length - 1].role === 'assistant') {
+        history.pop();
+      }
+      $('input').value = lastUserMsg.content;
+      $('form').requestSubmit();
+    };
+    actionRow.appendChild(regenBtn);
+    node.appendChild(actionRow);
+
+    // Smart Follow-up Suggestions
+    const followUps = getFollowUpSuggestions(mainContent);
+    const followUpWrap = document.createElement('div');
+    followUpWrap.className = 'followup-chips-row';
+    for (const f of followUps) {
+      const chip = document.createElement('button');
+      chip.className = 'followup-chip glass';
+      chip.type = 'button';
+      chip.textContent = f;
+      chip.onclick = () => {
+        if (busy || !connected) return;
+        $('input').value = f.replace(/^[^\w\s]+\s*/, '');
+        $('form').requestSubmit();
+      };
+      followUpWrap.appendChild(chip);
+    }
+    node.appendChild(followUpWrap);
+  }
+
+  msgRow.appendChild(node);
+  $('messages').appendChild(msgRow);
+  msgRow.scrollIntoView({ behavior: isHistoryItem ? 'auto' : 'smooth', block: 'nearest' });
 }
+
+function renderEmptyChatState() {
+  const welcome = document.createElement('div');
+  welcome.className = 'chat-welcome';
+  welcome.innerHTML = `
+    <span class="welcome-orb"></span>
+    <h2>Ein Gedanke genügt.</h2>
+    <p>Frag mich alles oder beginne ein neues Thema:</p>
+    <div class="starter-chips-grid">
+      <button class="starter-chip glass" type="button" data-starter="💡 Brainstorme 3 spannende Ideen für mich">
+        <span class="starter-icon">💡</span>
+        <span class="starter-label">Ideen brainstormen</span>
+      </button>
+      <button class="starter-chip glass" type="button" data-starter="📝 Formuliere diesen Gedanken prägnant und professionell: ">
+        <span class="starter-icon">📝</span>
+        <span class="starter-label">Text verbessern</span>
+      </button>
+      <button class="starter-chip glass" type="button" data-starter="⚡ Erkläre mir komplexen Code einfach und sauber">
+        <span class="starter-icon">⚡</span>
+        <span class="starter-label">Code erklären</span>
+      </button>
+      <button class="starter-chip glass" type="button" data-starter="🎯 Was sind heute die wichtigsten Prioritäten?">
+        <span class="starter-icon">🎯</span>
+        <span class="starter-label">Prioritäten setzen</span>
+      </button>
+    </div>
+  `;
+  welcome.querySelectorAll('[data-starter]').forEach(b => {
+    b.onclick = () => {
+      $('input').value = b.dataset.starter;
+      $('input').focus();
+      $('input').dispatchEvent(new Event('input'));
+    };
+  });
+  $('messages').appendChild(welcome);
+}
+
 function renderHistory() {
   $('messages').replaceChildren();
-  for (const item of history) message(item.content, item.role);
-  if (!history.length) message('Ein neuer Chat ist bereit. Dauerhafte Fakten kannst du unter Langzeitgedächtnis speichern.');
+  for (const item of history) message(item.content, item.role, true);
+  if (!history.length) renderEmptyChatState();
 }
+
 function render() {
   $('pc').textContent = projects.length; $('tc').textContent = tasks.filter(t => !t.done).length;
   $('projectList').innerHTML = [...projects.map((p,i) => `<div class="panel"><b>Projekt:</b> ${esc(p)} <button class="secondary" data-rp="${i}">Löschen</button></div>`), ...tasks.map((t,i) => `<div class="panel"><label><input type="checkbox" data-task="${i}" ${t.done ? 'checked' : ''}> ${esc(t.name)}</label> <button class="secondary" data-rt="${i}">Löschen</button></div>`)].join('') || 'Noch keine Projekte oder Aufgaben.';
@@ -143,26 +347,82 @@ function render() {
     finally { busy = false; controls(); }
   });
 }
+
 function renderConversations() {
-  const list = $('conversationList'); if (!list) return;
-  list.replaceChildren();
+  const list = $('conversationList');
+  const sideList = $('sideThreadList');
+  if (list) list.replaceChildren();
+  if (sideList) sideList.replaceChildren();
+
   for (const item of conversations) {
-    const button = document.createElement('button'); button.className = 'conversation-row'; button.dataset.conversation = item.id;
-    const title = document.createElement('strong'); title.textContent = item.title || 'Gespräch';
-    const detail = document.createElement('span'); detail.textContent = `${item.message_count || 0} Nachrichten`;
-    button.append(title,detail); button.disabled = busy;
-    button.onclick = () => switchConversation(item.id); list.appendChild(button);
+    if (list) {
+      const button = document.createElement('button'); button.className = 'conversation-row'; button.dataset.conversation = item.id;
+      const title = document.createElement('strong'); title.textContent = item.title || 'Gespräch';
+      const detail = document.createElement('span'); detail.textContent = `${item.message_count || 0} Nachrichten`;
+      button.append(title,detail); button.disabled = busy;
+      button.onclick = () => switchConversation(item.id); list.appendChild(button);
+    }
+    if (sideList) {
+      const threadWrap = document.createElement('div');
+      threadWrap.className = 'side-thread-item' + (item.id === conversation ? ' active' : '');
+      threadWrap.dataset.conversation = item.id;
+
+      const clickBtn = document.createElement('button');
+      clickBtn.type = 'button';
+      clickBtn.className = 'side-thread-btn';
+      clickBtn.innerHTML = `<svg class="thread-icon" aria-hidden="true"><use href="#i-chat"></use></svg><span class="thread-title">${esc(item.title || 'Neuer Chat')}</span>`;
+      clickBtn.disabled = busy;
+      clickBtn.onclick = () => switchConversation(item.id);
+
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'side-thread-del';
+      delBtn.title = 'Chat dauerhaft löschen';
+      delBtn.innerHTML = '<svg aria-hidden="true"><use href="#i-trash"></use></svg>';
+      delBtn.disabled = busy;
+      delBtn.onclick = async e => {
+        e.stopPropagation();
+        if (busy || !connected) return;
+        if (!confirm('Diesen Chatverlauf dauerhaft aus D1 löschen?')) return;
+        busy = true; controls();
+        try {
+          await api('/api/history?conversation_id=' + encodeURIComponent(item.id), { method: 'DELETE' });
+          if (conversation === item.id) {
+            conversation = crypto.randomUUID();
+            localStorage.setItem('pai_conversation', conversation);
+            history = [];
+            renderHistory();
+          }
+          await loadConversations();
+        } catch (err) {
+          $('chatNotice').textContent = err.message;
+        } finally {
+          busy = false; controls();
+        }
+      };
+
+      threadWrap.append(clickBtn, delBtn);
+      sideList.appendChild(threadWrap);
+    }
   }
-  if (!conversations.length) { const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = connected ? 'Deine gespeicherten Gespräche erscheinen hier.' : 'Melde dich an, um deine Gespräche zu sehen.'; list.appendChild(empty); }
+
+  if (list && !conversations.length) {
+    const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = connected ? 'Deine gespeicherten Gespräche erscheinen hier.' : 'Melde dich an, um deine Gespräche zu sehen.'; list.appendChild(empty);
+  }
+  if (sideList && !conversations.length) {
+    const emptySide = document.createElement('div'); emptySide.className = 'side-threads-empty muted'; emptySide.textContent = 'Noch keine Chats gespeichert.'; sideList.appendChild(emptySide);
+  }
 }
+
 async function loadConversations() { const data = await api('/api/conversations'); conversations = data.conversations; renderConversations(); }
 async function switchConversation(id) {
   if (busy || !connected) return;
   busy = true; controls();
-  try { const data = await api('/api/history?conversation_id=' + encodeURIComponent(id)); conversation = id; localStorage.setItem('pai_conversation',id); history = data.messages; renderHistory(); go('chat'); }
+  try { const data = await api('/api/history?conversation_id=' + encodeURIComponent(id)); conversation = id; localStorage.setItem('pai_conversation',id); history = data.messages; renderHistory(); renderConversations(); go('chat'); }
   catch (error) { $('chatNotice').textContent = error.message; }
   finally { busy = false; controls(); }
 }
+
 async function api(path, options = {}) {
   const epoch = authEpoch;
   let response;
@@ -181,14 +441,82 @@ async function api(path, options = {}) {
   }
   return data;
 }
+
 async function loadMemories() {
   const data = await api('/api/memories'); memories = data.memories; render();
   $('memoryStatus').textContent = `${memories.length} D1-Erinnerung(en) geladen (Anzeige maximal 100).`;
 }
-async function health() {
-  busy = true; connected = false; controls();
-  $('health').textContent = 'Prüfe Worker und Anmeldung …';
+
+async function loadMasterMemories() {
+  if (!connected || !isAdmin) return;
+  const list = $('masterMemoriesList');
+  const countLabel = $('masterMemoryCount');
+  if (countLabel) countLabel.textContent = 'Lade alle Nutzer-Erinnerungen …';
   try {
+    const data = await api('/api/admin/all-memories');
+    const all = data.memories || [];
+    if (countLabel) countLabel.textContent = `${all.length} globale Erinnerung(en) über alle Konten gefunden`;
+    if (list) {
+      if (!all.length) {
+        list.innerHTML = '<div class="empty">Keine Erinnerungen in D1 vorhanden.</div>';
+        return;
+      }
+      list.innerHTML = all.map(m => `
+        <div class="master-memory-card glass">
+          <div class="master-card-top">
+            <span class="master-user-pill">👤 ${esc(m.user_label || m.session_id)}</span>
+            <span class="master-time">${esc(m.created_at ? new Date(m.created_at).toLocaleString('de-DE') : '')}</span>
+          </div>
+          <p class="master-card-content">${esc(m.content)}</p>
+          <div class="master-card-actions">
+            <button type="button" class="danger-btn compact" data-master-del="${esc(m.id)}">
+              <svg aria-hidden="true" focusable="false"><use href="#i-trash"/></svg>
+              <span>1-Klick Löschen</span>
+            </button>
+          </div>
+        </div>
+      `).join('');
+      list.querySelectorAll('[data-master-del]').forEach(btn => {
+        btn.onclick = async () => {
+          if (busy || !confirm('Diese Erinnerung wirklich unwiderruflich aus D1 löschen?')) return;
+          busy = true; controls();
+          try {
+            await api('/api/admin/all-memories', { method: 'DELETE', body: JSON.stringify({ id: btn.dataset.masterDel }) });
+            await loadMasterMemories();
+            await loadMemories();
+          } catch (err) {
+            alert('Fehler beim Löschen: ' + err.message);
+          } finally {
+            busy = false; controls();
+          }
+        };
+      });
+    }
+  } catch (err) {
+    if (countLabel) countLabel.textContent = 'Fehler: ' + err.message;
+  }
+}
+
+async function health() {
+  busy = true; controls();
+  $('health').textContent = 'Prüfe Worker und Verbindung …';
+  try {
+    // 1. Fetch token from localStorage or automatically from /api/auth/session
+    if (!token) {
+      token = localStorage.getItem('pai_token') || '';
+    }
+    if (!token && sessionStorage.getItem('pai_logged_out') !== 'true') {
+      try {
+        const sessionRes = await fetch('/api/auth/session', { credentials: 'same-origin' });
+        if (sessionRes.ok) {
+          const sessionData = await sessionRes.json();
+          if (sessionData.token) {
+            token = sessionData.token;
+            localStorage.setItem('pai_token', token);
+          }
+        }
+      } catch {}
+    }
     const h = await api('/api/health');
     $('api').textContent = 'Erreichbar';
     const status = await api('/api/status');
@@ -203,46 +531,103 @@ async function health() {
     }
     isAdmin = Boolean(status.isAdmin);
     if ($('adminNav')) $('adminNav').hidden = !isAdmin;
+    if ($('adminMasterWrap')) $('adminMasterWrap').hidden = !isAdmin;
     if ($('profileConsent')) $('profileConsent').checked = Boolean(status.profileConsent);
-    $('manualConnection').hidden = accessVerified;
+    $('manualConnection').hidden = true;
     connected = true;
+    sessionStorage.removeItem('pai_logged_out');
     autoDetectTheme(status);
-    $('connectionStatus').textContent = accessVerified ? 'Cloudflare Access geprüft. Automatische Verbindung mit dieser Website aktiv.' : 'Privater Token-Zugang aktiv. Automatische Access-Anmeldung noch nicht eingerichtet.';
+    updateProfileDisplay(status);
+    $('connectionStatus').textContent = accessVerified ? 'Cloudflare Access geprüft. Automatische Verbindung aktiv.' : 'Automatisch verbunden. Dein persönlicher Raum ist bereit.';
     $('health').textContent = `${h.name} · Version ${h.version} · D1 erreichbar · Modell ${status.modelConfigured ? 'konfiguriert, Erreichbarkeit ungeprüft' : 'nicht konfiguriert'}`;
     $('modelStatus').textContent = status.modelConfigured ? 'KI ungeprüft' : 'KI nicht konfiguriert';
     $('gpuStatus').textContent = 'Ungeprüft';
     $('systemStatus').textContent = 'WORKER UND D1 ERREICHBAR';
     $('sideStatus').textContent = 'D1 verbunden · GPU-Status ungeprüft';
-    $('chatNotice').textContent = 'Angemeldet. Modellanfragen werden erst beim Senden ausgeführt. Eine offline GPU muss manuell gestartet werden.';
+    $('chatNotice').textContent = 'Verbunden. Bereit für deine Gedanken.';
     await loadMemories(); await loadConversations();
     const data = await api('/api/history?conversation_id=' + encodeURIComponent(conversation)); history = data.messages; renderHistory();
   } catch (error) {
     connected = false; accessVerified = false; $('manualConnection').hidden = false;
     if ($('adminNav')) $('adminNav').hidden = true;
+    if ($('adminMasterWrap')) $('adminMasterWrap').hidden = true;
     clearPrivateViews();
     $('health').textContent = error.message; $('connectionStatus').textContent = error.message;
     $('memoryStatus').textContent = 'D1-Erinnerungen konnten nicht geladen werden: ' + error.message;
     $('systemStatus').textContent = 'ANMELDUNG ODER VERBINDUNG PRÜFEN';
     $('sideStatus').textContent = 'Anmeldung oder Verbindung prüfen';
-    $('chatNotice').textContent = error.message + ' Öffne Einstellungen oder lade die Seite für Cloudflare Access neu.';
+    $('chatNotice').textContent = error.message;
   } finally { busy = false; controls(); }
 }
+
 $('save').onclick = async () => {
   try {
     const target = new URL($('url').value.trim());
     if (target.origin !== window.location.origin) throw Error('Öffne die App direkt unter der Worker-URL. Tokens werden nur an dieselbe Website gesendet.');
-    authEpoch++; connected = false; clearPrivateViews(); token = $('app-token').value.trim(); $('app-token').value = ''; await health();
+    sessionStorage.removeItem('pai_logged_out');
+    authEpoch++; connected = false; clearPrivateViews();
+    token = $('app-token').value.trim();
+    $('app-token').value = '';
+    if (token) localStorage.setItem('pai_token', token);
+    await health();
   } catch (error) { $('connectionStatus').textContent = error.message; }
 };
-$('forgetToken').onclick = () => { localStorage.removeItem('pai_token'); $('connectionStatus').textContent = 'Alter Browser-Token entfernt. Falls er früher offengelegt wurde, muss er zusätzlich auf Cloudflare rotiert werden.'; };
+
+$('forgetToken').onclick = () => {
+  localStorage.removeItem('pai_token');
+  token = '';
+  $('connectionStatus').textContent = 'Browser-Token entfernt. Bitte Seite neu laden oder manuell verbinden.';
+};
+
 $('logout').onclick = () => {
   const accessLogout = accessVerified;
-  authEpoch++; token = ''; connected = false; accessVerified = false; currentUserId = ''; clearPrivateViews();
+  authEpoch++; token = ''; connected = false; accessVerified = false; currentUserId = '';
+  localStorage.removeItem('pai_token');
+  sessionStorage.setItem('pai_logged_out', 'true');
+  clearPrivateViews();
+  $('manualConnection').hidden = false;
   if (accessLogout) window.location.assign('/cdn-cgi/access/logout');
-  else { $('connectionStatus').textContent = 'Abgemeldet. Token aus dem Arbeitsspeicher entfernt.'; $('chatNotice').textContent = 'Abgemeldet.'; }
+  else {
+    $('connectionStatus').textContent = 'Abgemeldet. Token aus dem Arbeitsspeicher entfernt.';
+    $('chatNotice').textContent = 'Abgemeldet.';
+  }
 };
+
 $('check').onclick = health;
 $('reloadMemory').onclick = () => loadMemories().catch(error => { $('memoryStatus').textContent = error.message; });
+
+if ($('quickMemoryForm')) {
+  $('quickMemoryForm').onsubmit = async event => {
+    event.preventDefault();
+    const val = $('quickMemoryInput').value.trim();
+    if (!val || busy || !connected) return;
+    busy = true; controls();
+    try {
+      await api('/api/memories', { method: 'POST', body: JSON.stringify({ content: val }) });
+      $('quickMemoryInput').value = '';
+      await loadMemories();
+    } catch (error) {
+      $('memoryStatus').textContent = 'Nicht als gespeichert bestätigt: ' + error.message;
+    } finally {
+      busy = false; controls();
+    }
+  };
+}
+
+if ($('toggleMasterMemories')) {
+  $('toggleMasterMemories').onclick = () => {
+    const panel = $('masterMemoriesPanel');
+    if (!panel) return;
+    const willShow = panel.hidden;
+    panel.hidden = !willShow;
+    if (willShow) loadMasterMemories();
+  };
+}
+
+if ($('reloadMasterMemories')) {
+  $('reloadMasterMemories').onclick = () => loadMasterMemories();
+}
+
 $('addProject').onclick = async () => { const value = await ask('Neues Projekt','Projektname',200); if(value?.trim()) { projects.push(value.trim()); put('projects',projects); render(); } };
 $('addTask').onclick = async () => { const value = await ask('Neue Aufgabe','Was möchtest du erledigen?',500); if(value?.trim()) { tasks.push({name:value.trim(),done:false}); put('tasks',tasks); render(); } };
 $('addMemory').onclick = async () => {
@@ -253,6 +638,7 @@ $('addMemory').onclick = async () => {
   catch (error) { $('memoryStatus').textContent = 'Nicht als gespeichert bestätigt: ' + error.message; }
   finally { busy = false; controls(); }
 };
+
 async function ask(title, label, limit) {
   const dialog = $('entryDialog');
   if (!dialog) return prompt(label);
@@ -264,6 +650,7 @@ async function ask(title, label, limit) {
     dialog.addEventListener('close',close); dialog.returnValue = ''; dialog.showModal(); field.focus();
   });
 }
+
 function download(name, value) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value,null,2)], {type:'application/json'}));
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url);
@@ -272,7 +659,20 @@ $('exportMemory').onclick = () => download('personal-ai-erinnerungen.json', memo
 $('legacyMemory').textContent = legacy.length ? `${legacy.length} alte Erinnerung(en) liegen nur in diesem Browser. Sie bleiben erhalten und werden nicht automatisch hochgeladen. Exportieren und gewünschte Fakten einzeln in D1 übernehmen.` : '';
 $('exportLegacy').hidden = !legacy.length;
 $('exportLegacy').onclick = () => download('personal-ai-alte-browser-erinnerungen.json', legacy);
-$('newChat').onclick = () => { conversation = crypto.randomUUID(); localStorage.setItem('pai_conversation',conversation); history = []; renderHistory(); };
+
+function startNewChat() {
+  conversation = crypto.randomUUID();
+  localStorage.setItem('pai_conversation', conversation);
+  history = [];
+  renderHistory();
+  renderConversations();
+  go('chat');
+  if ($('input')) $('input').focus();
+}
+
+$('newChat').onclick = startNewChat;
+if ($('sideNewChat')) $('sideNewChat').onclick = startNewChat;
+
 $('deleteChat').onclick = async () => {
   if (busy || !connected || !confirm('Diesen Chatverlauf dauerhaft aus D1 löschen? Erinnerungen bleiben erhalten.')) return;
   busy = true; controls();
@@ -280,12 +680,13 @@ $('deleteChat').onclick = async () => {
   catch (error) { $('chatNotice').textContent = error.message; }
   finally { busy = false; controls(); }
 };
+
 $('form').onsubmit = async event => {
   event.preventDefault(); const text = $('input').value.trim(); if (!text || busy || !connected) return;
   busy = true; controls(); message(text,'user'); $('input').value = ''; $('input').style.height = 'auto';
+  if ($('send')) $('send').classList.remove('has-text');
   showLoading();
   try {
-    // Keep complete recent turns and bound context before sending.
     const messages = [...history.map(({role,content}) => ({role,content})).slice(-28),{role:'user',content:text}];
     while (messages.length > 1 && messages.reduce((n,m) => n + m.content.length,0) > 48000) messages.splice(0,Math.min(2,messages.length-1));
     const data = await api('/api/chat', {method:'POST',body:JSON.stringify({messages,conversation_id:conversation})});
@@ -299,22 +700,28 @@ $('form').onsubmit = async event => {
     hideLoading();
     message('Keine bestätigte KI-Antwort: ' + error.message);
     $('input').value = text; $('modelStatus').textContent = 'KI-Anfrage fehlgeschlagen';
-    $('chatNotice').textContent = 'Anfrage fehlgeschlagen. Eine offline GPU muss manuell gestartet werden. Es erfolgt kein automatischer Neuversuch.';
+    $('chatNotice').textContent = 'Anfrage fehlgeschlagen. Eine offline GPU muss manuell gestartet werden.';
   } finally { hideLoading(); busy = false; controls(); }
 };
+
 $('input').addEventListener('keydown', event => {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault();
     if (!busy && connected && $('input').value.trim()) $('form').requestSubmit();
   }
 });
+
 $('input').addEventListener('input', () => {
   $('input').style.height = 'auto';
   $('input').style.height = Math.min($('input').scrollHeight, 140) + 'px';
+  const hasContent = Boolean($('input').value.trim());
+  if ($('send')) $('send').classList.toggle('has-text', hasContent);
 });
+
 $('file').onchange = event => { $('fileStatus').textContent = `${event.target.files.length} Datei(en) ausgewählt – nicht hochgeladen.`; };
 document.querySelectorAll('[data-color]').forEach(button => button.onclick = () => { document.documentElement.style.setProperty('--accent',button.dataset.color); localStorage.setItem('pai_color',button.dataset.color); });
 if (localStorage.getItem('pai_color')) document.documentElement.style.setProperty('--accent',localStorage.getItem('pai_color'));
+
 const applyTheme = (theme, manual = false) => {
   if (!['default','bmw-520i','ultra-workstation',''].includes(theme || '')) theme = 'default';
   const activeTheme = (!theme || theme === 'default') ? '' : theme;
@@ -344,6 +751,7 @@ const applyTheme = (theme, manual = false) => {
     btn.classList.toggle('active', (btn.dataset.themeBtn || 'default') === (activeTheme || 'default'));
   });
 };
+
 const autoDetectTheme = (status) => {
   try {
     const urlParams = new URLSearchParams(window.location.search);
@@ -370,10 +778,12 @@ const autoDetectTheme = (status) => {
     applyTheme(localStorage.getItem('pai_theme') || 'default', false);
   }
 };
+
 document.querySelectorAll('[data-theme-btn]').forEach(btn => {
   btn.onclick = () => applyTheme(btn.dataset.themeBtn, true);
 });
 autoDetectTheme();
+
 window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'l') {
     event.preventDefault();
@@ -386,22 +796,236 @@ window.addEventListener('keydown', event => {
     go('chat'); if ($('input')) $('input').focus();
   }
 });
+
 if ($('entryCancel')) $('entryCancel').onclick = () => $('entryDialog').close('cancel');
 if ($('entryForm')) $('entryForm').onsubmit = event => { event.preventDefault(); $('entryDialog').close('save'); };
 if ($('exportChat')) $('exportChat').onclick = () => download('personal-ai-chat.json', {conversation_id:conversation,messages:history});
-if ($('installApp')) $('installApp').onclick = () => $('installGuide').showModal();
+
+// --- Gerätedetektion & Gamified PWA Install Quest ---
+function detectDevice() {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  const maxTouchPoints = navigator.maxTouchPoints || 0;
+  
+  const urlParam = new URLSearchParams(window.location.search).get('device')?.toLowerCase();
+  if (urlParam === 'iphone') return { type: 'ios', model: 'iphone', label: '📱 iPhone erkannt', isMobile: true };
+  if (urlParam === 'ipad') return { type: 'ios', model: 'ipad', label: '📱 iPad erkannt', isMobile: true };
+  if (urlParam === 'samsung') return { type: 'android', model: 'samsung', label: '📱 Samsung erkannt', isMobile: true };
+  if (urlParam === 'pixel') return { type: 'android', model: 'pixel', label: '📱 Pixel erkannt', isMobile: true };
+  if (urlParam === 'mac') return { type: 'desktop', model: 'mac', label: '🖥️ Mac/PC Studio', isMobile: false };
+  if (urlParam === 'pc' || urlParam === 'desktop') return { type: 'desktop', model: 'pc', label: '🖥️ Mac/PC Studio', isMobile: false };
+
+  const isIPad = /iPad/i.test(ua) || (platform === 'MacIntel' && maxTouchPoints > 1);
+  const isIPhone = /iPhone|iPod/i.test(ua);
+  if (isIPhone) return { type: 'ios', model: 'iphone', label: '📱 iPhone erkannt', isMobile: true };
+  if (isIPad) return { type: 'ios', model: 'ipad', label: '📱 iPad erkannt', isMobile: true };
+
+  if (/Android/i.test(ua)) {
+    if (/Samsung|SM-[A-Z0-9]+/i.test(ua)) return { type: 'android', model: 'samsung', label: '📱 Samsung erkannt', isMobile: true };
+    if (/Pixel/i.test(ua)) return { type: 'android', model: 'pixel', label: '📱 Pixel erkannt', isMobile: true };
+    return { type: 'android', model: 'android', label: '📱 Samsung erkannt', isMobile: true };
+  }
+
+  if (/Macintosh|Mac OS X/i.test(ua)) return { type: 'desktop', model: 'mac', label: '🖥️ Mac/PC Studio', isMobile: false };
+  if (/Windows|Win32|Win64|Linux|X11/i.test(ua)) return { type: 'desktop', model: 'pc', label: '🖥️ Mac/PC Studio', isMobile: false };
+
+  if (window.innerWidth <= 800 && maxTouchPoints > 0) return { type: 'mobile', model: 'mobile', label: '📱 iPhone erkannt', isMobile: true };
+  return { type: 'desktop', model: 'pc', label: '🖥️ Mac/PC Studio', isMobile: false };
+}
+
+const currentDevice = detectDevice();
+const isStandaloneMode = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true || document.referrer.includes('android-app://');
+
+let deferredInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  if ($('questNativeWrap')) $('questNativeWrap').hidden = false;
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  if ($('questNativeWrap')) $('questNativeWrap').hidden = true;
+  completeQuest(true);
+});
+
+let questSteps = [true, true, false];
+try {
+  const saved = localStorage.getItem('pai_quest_steps');
+  if (saved) questSteps = JSON.parse(saved);
+} catch {}
+if (localStorage.getItem('pai_quest_completed') === 'true') {
+  questSteps = [true, true, true];
+}
+
+function updateQuestProgressUI() {
+  const doneCount = questSteps.filter(Boolean).length;
+  let percent = 20;
+  let progressText = 'Fortschritt: [□□□□□] 20% XP';
+  if (doneCount === 1) { percent = 40; progressText = 'Fortschritt: [■■□□□] 40% XP'; }
+  else if (doneCount === 2) { percent = 60; progressText = 'Fortschritt: [■■■□□] 60% XP'; }
+  else if (doneCount >= 3) { percent = 100; progressText = 'Fortschritt: [■■■■■] 100% XP'; }
+
+  if ($('questProgressText')) $('questProgressText').textContent = progressText;
+  if ($('questProgressBar')) $('questProgressBar').style.width = percent + '%';
+  if ($('questBannerProgressText')) $('questBannerProgressText').textContent = progressText;
+  if ($('questBannerProgressBar')) $('questBannerProgressBar').style.width = percent + '%';
+  if ($('questStatusLevel')) $('questStatusLevel').textContent = doneCount >= 3 ? 'MAX' : `LVL ${doneCount + 1}`;
+
+  document.querySelectorAll('.quest-mission-item').forEach((item, idx) => {
+    item.classList.toggle('completed', Boolean(questSteps[idx]));
+    const check = item.querySelector('.mission-check');
+    if (check) check.textContent = questSteps[idx] ? '✓' : '';
+  });
+}
+
+function launchConfetti() {
+  const container = $('questConfetti');
+  if (!container) return;
+  container.innerHTML = '';
+  const emojis = ['🪙', '💎', '✨', '💵', '🪙', '💎', '🟢', '⭐'];
+  for (let i = 0; i < 36; i++) {
+    const span = document.createElement('span');
+    span.className = 'confetti-particle';
+    span.textContent = emojis[Math.floor(Math.random() * emojis.length)];
+    const left = Math.random() * 92 + 4;
+    const dur = 1.8 + Math.random() * 1.4;
+    const delay = Math.random() * 0.35;
+    const rot = Math.floor(Math.random() * 360);
+    const size = 16 + Math.floor(Math.random() * 16);
+    span.style.cssText = `left:${left}%; animation-duration:${dur}s; animation-delay:${delay}s; font-size:${size}px; --rot:${rot}deg;`;
+    container.appendChild(span);
+  }
+  setTimeout(() => { container.innerHTML = ''; }, 3800);
+}
+
+function completeQuest(silent = false) {
+  questSteps = [true, true, true];
+  localStorage.setItem('pai_quest_completed', 'true');
+  localStorage.setItem('pai_quest_steps', JSON.stringify(questSteps));
+  updateQuestProgressUI();
+  if ($('questCelebration')) $('questCelebration').hidden = false;
+  if ($('questCompleteBtn')) {
+    $('questCompleteBtn').disabled = true;
+    $('questCompleteBtn').innerHTML = '<span>🏆 Quest gemeistert!</span>';
+  }
+  if (!silent) launchConfetti();
+}
+
+function snoozeQuest() {
+  localStorage.setItem('pai_quest_dismissed', 'true');
+  if ($('installQuestBanner')) $('installQuestBanner').hidden = true;
+  if ($('installGuide')) $('installGuide').close();
+}
+
+function openQuestModal() {
+  const dialog = $('installGuide');
+  if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
+}
+
+function renderMissions() {
+  const container = $('questMissions');
+  if (!container) return;
+  let missions = [];
+  if (currentDevice.type === 'ios') {
+    missions = [
+      { id: 0, text: 'Mission 1: Tippe unten auf den Teilen-Button ⎋ (Share-Icon)', arrow: true },
+      { id: 1, text: "Mission 2: Scrolle kurz nach unten und wähle 'Zum Home-Bildschirm' 📲", arrow: false },
+      { id: 2, text: 'Mission 3: Starte Philipps AI direkt vom Homescreen für pure 120 FPS Liquid Glass Power!', arrow: false }
+    ];
+  } else if (currentDevice.type === 'android') {
+    missions = [
+      { id: 0, text: "Mission 1: Klicke auf '🚀 Jetzt als App installieren' (oder im Menü ⋮)", arrow: false },
+      { id: 1, text: 'Mission 2: Bestätige die Installation im Browser-Dialog 📲', arrow: false },
+      { id: 2, text: 'Mission 3: Starte Philipps AI direkt vom Homescreen für pure 120 FPS Liquid Glass Power!', arrow: false }
+    ];
+    if (deferredInstallPrompt && $('questNativeWrap')) $('questNativeWrap').hidden = false;
+  } else {
+    missions = [
+      { id: 0, text: 'Mission 1: Klicke oben auf das Installations-Symbol ⊕ in der Adressleiste', arrow: false },
+      { id: 1, text: 'Mission 2: Bestätige die App-Installation im Browser-Popup 🖥️', arrow: false },
+      { id: 2, text: 'Mission 3: Starte Philipps AI als Desktop-App für pure 120 FPS Liquid Glass Power!', arrow: false }
+    ];
+  }
+
+  container.innerHTML = missions.map(m => `
+    <div class="quest-mission-item ${questSteps[m.id] ? 'completed' : ''}" data-mission="${m.id}" role="checkbox" aria-checked="${Boolean(questSteps[m.id])}" tabindex="0">
+      <span class="mission-check">${questSteps[m.id] ? '✓' : ''}</span>
+      <div class="mission-body">
+        <p class="mission-title">${esc(m.text)}${m.arrow ? '<span class="quest-pulse-arrow" aria-hidden="true">⬇️</span>' : ''}</p>
+      </div>
+    </div>
+  `).join('');
+
+  container.querySelectorAll('[data-mission]').forEach(elem => {
+    const toggle = () => {
+      const idx = +elem.dataset.mission;
+      questSteps[idx] = !questSteps[idx];
+      localStorage.setItem('pai_quest_steps', JSON.stringify(questSteps));
+      if (questSteps.every(Boolean)) localStorage.setItem('pai_quest_completed', 'true');
+      updateQuestProgressUI();
+    };
+    elem.onclick = toggle;
+    elem.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+  });
+}
+
+function initDeviceAndQuest() {
+  if ($('devicePillText')) $('devicePillText').textContent = currentDevice.label;
+  if ($('devicePill')) $('devicePill').onclick = openQuestModal;
+
+  const standalone = isStandaloneMode();
+  const isMobile = currentDevice.isMobile || window.innerWidth <= 800;
+  const isDismissed = localStorage.getItem('pai_quest_dismissed') === 'true';
+
+  if ($('installQuestBanner')) {
+    $('installQuestBanner').hidden = !(isMobile && !standalone && !isDismissed);
+  }
+
+  renderMissions();
+  updateQuestProgressUI();
+
+  if (localStorage.getItem('pai_quest_completed') === 'true') {
+    if ($('questCelebration')) $('questCelebration').hidden = false;
+    if ($('questCompleteBtn')) {
+      $('questCompleteBtn').disabled = true;
+      $('questCompleteBtn').innerHTML = '<span>🏆 Quest gemeistert!</span>';
+    }
+  }
+
+  if ($('questBannerOpenBtn')) $('questBannerOpenBtn').onclick = openQuestModal;
+  if ($('questBannerDismissBtn')) $('questBannerDismissBtn').onclick = snoozeQuest;
+  if ($('questCloseBtn')) $('questCloseBtn').onclick = () => $('installGuide')?.close();
+  if ($('questCompleteBtn')) $('questCompleteBtn').onclick = () => completeQuest(false);
+  if ($('questSnoozeBtn')) $('questSnoozeBtn').onclick = snoozeQuest;
+  if ($('questNativeBtn')) {
+    $('questNativeBtn').onclick = async () => {
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if (outcome === 'accepted') completeQuest(false);
+        deferredInstallPrompt = null;
+      } else {
+        alert('Tippe im Browser-Menü (oben rechts ⋮) auf "App installieren"!');
+      }
+    };
+  }
+  document.querySelectorAll('[data-install]').forEach(b => { b.onclick = openQuestModal; });
+}
+
 function viewport() {
   const height = window.visualViewport?.height || window.innerHeight;
   document.documentElement.style.setProperty('--viewport-height',height + 'px');
   document.body.classList.toggle('keyboard-open',window.innerHeight - height > 120);
 }
 window.visualViewport?.addEventListener('resize',viewport); window.addEventListener('resize',viewport); viewport();
+
 function networkStatus() {
   if ($('offlineBanner')) $('offlineBanner').hidden = navigator.onLine;
   controls();
 }
 window.addEventListener('online',networkStatus); window.addEventListener('offline',networkStatus); networkStatus();
 if ('serviceWorker' in navigator && window.isSecureContext) navigator.serviceWorker.register('/sw.js').catch(() => {});
+
 async function loadProfile() {
   if (!connected) return;
   try {
@@ -420,6 +1044,7 @@ async function loadProfile() {
     if ($('profileStatus')) $('profileStatus').textContent = error.message;
   }
 }
+
 if ($('saveProfileConsent')) {
   $('saveProfileConsent').onclick = async () => {
     if (!connected || busy) return;
@@ -452,6 +1077,7 @@ async function loadAdmin() {
     $('adminStatus').textContent = error.message;
   }
 }
+
 async function selectAdminUser(user) {
   if (!user) return;
   adminSelectedUser = user;
@@ -481,6 +1107,7 @@ async function selectAdminUser(user) {
     $('adminStatus').textContent = error.message;
   }
 }
+
 if ($('adminBlock')) {
   $('adminBlock').onclick = async () => {
     if (!adminSelectedUser || busy) return;
@@ -493,6 +1120,7 @@ if ($('adminBlock')) {
     finally { busy = false; controls(); }
   };
 }
+
 if ($('adminUnblock')) {
   $('adminUnblock').onclick = async () => {
     if (!adminSelectedUser || busy) return;
@@ -513,4 +1141,4 @@ if ($('declineTerms')) $('declineTerms').onclick = () => { termsDialog?.close();
 if ($('reconsiderTerms')) $('reconsiderTerms').onclick = () => { declinedDialog?.close(); termsDialog?.showModal(); };
 if ($('leaveTerms')) $('leaveTerms').onclick = () => { declinedDialog?.close(); $('logout')?.click(); };
 
-render(); renderConversations(); go('overview'); health();
+render(); renderConversations(); go('overview'); initDeviceAndQuest(); health();

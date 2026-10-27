@@ -23,9 +23,17 @@ export async function browserHarness() {
   const mime = {'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.webmanifest':'application/manifest+json','.svg':'image/svg+xml','.png':'image/png'};
   const env = {DB,APP_TOKEN:token,VLLM_BASE_URL:'https://local-mock.example/v1',VLLM_API_KEY:'local-mock-only',ASSETS:{fetch:async request=>{
     const pathname = decodeURIComponent(new URL(request.url).pathname);
+    if (pathname === '/favicon.ico') return new Response(null, { status: 204 });
     const target = resolve(publicRoot,'.' + (pathname==='/' ? '/index.html' : pathname));
     if(!target.startsWith(publicRoot+sep)) return new Response('Not found',{status:404});
-    try { const content = await readFile(target); const extension = target.slice(target.lastIndexOf('.')); return new Response(content,{headers:{'Content-Type':mime[extension]||'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"}}); }
+    try {
+      const content = await readFile(target);
+      const extension = target.slice(target.lastIndexOf('.'));
+      const csp = pathname.includes('preview')
+        ? "default-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; img-src 'self' https: data:;"
+        : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'";
+      return new Response(content,{headers:{'Content-Type':mime[extension]||'application/octet-stream','X-Content-Type-Options':'nosniff','Content-Security-Policy':csp}});
+    }
     catch { return new Response('Not found',{status:404}); }
   }}};
   let base;
