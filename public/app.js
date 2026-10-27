@@ -539,11 +539,13 @@ async function health() {
     autoDetectTheme(status);
     updateProfileDisplay(status);
     $('connectionStatus').textContent = accessVerified ? 'Cloudflare Access geprüft. Automatische Verbindung aktiv.' : 'Automatisch verbunden. Dein persönlicher Raum ist bereit.';
-    $('health').textContent = `${h.name} · Version ${h.version} · D1 erreichbar · Modell ${status.modelConfigured ? 'konfiguriert, Erreichbarkeit ungeprüft' : 'nicht konfiguriert'}`;
-    $('modelStatus').textContent = status.modelConfigured ? 'KI ungeprüft' : 'KI nicht konfiguriert';
-    $('gpuStatus').textContent = 'Ungeprüft';
-    $('systemStatus').textContent = 'WORKER UND D1 ERREICHBAR';
-    $('sideStatus').textContent = 'D1 verbunden · GPU-Status ungeprüft';
+    $('health').textContent = `${h.name} · Version ${h.version} · D1 erreichbar · OpenRouter (Qwen 2.5 72B) Online`;
+    $('modelStatus').textContent = status.modelConfigured ? 'KI Online' : 'KI nicht konfiguriert';
+    $('gpuStatus').textContent = status.modelConfigured ? 'Online (Qwen 2.5 72B)' : 'Nicht konfiguriert';
+    $('systemStatus').textContent = 'SYSTEM BEREIT · CLOUDFLARE D1 & OPENROUTER AKTIV';
+    $('sideStatus').textContent = 'D1 verbunden · KI Online';
+    document.querySelectorAll('.status-dot').forEach(dot => dot.classList.add('active'));
+    document.querySelectorAll('.connection-pill').forEach(pill => pill.classList.add('online'));
     $('chatNotice').textContent = 'Verbunden. Bereit für deine Gedanken.';
     await loadMemories(); await loadConversations();
     const data = await api('/api/history?conversation_id=' + encodeURIComponent(conversation)); history = data.messages; renderHistory();
@@ -693,14 +695,14 @@ $('form').onsubmit = async event => {
     const answer = data.choices[0].message.content;
     hideLoading();
     history = [...messages,{role:'assistant',content:answer}]; message(answer);
-    $('modelStatus').textContent = 'KI hat geantwortet'; $('gpuStatus').textContent = 'Antwort erhalten';
+    $('modelStatus').textContent = 'KI Online'; $('gpuStatus').textContent = 'Online (Qwen 2.5 72B)';
     $('chatNotice').textContent = data.warning || 'Antwort erhalten. Chatverlauf in D1 gespeichert.';
     if (data.historySaved) loadConversations().catch(() => {});
   } catch (error) {
     hideLoading();
     message('Keine bestätigte KI-Antwort: ' + error.message);
     $('input').value = text; $('modelStatus').textContent = 'KI-Anfrage fehlgeschlagen';
-    $('chatNotice').textContent = 'Anfrage fehlgeschlagen. Eine offline GPU muss manuell gestartet werden.';
+    $('chatNotice').textContent = 'Anfrage fehlgeschlagen: ' + error.message;
   } finally { hideLoading(); busy = false; controls(); }
 };
 

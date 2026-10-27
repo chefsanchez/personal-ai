@@ -306,7 +306,7 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
         try {
           // Workers supports manual/follow, but rejects redirect:'error'. Never
           // follow upstream redirects with the model provider's bearer secret.
-          const response = await upstream(endpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeout), headers: { Authorization: `Bearer ${env.VLLM_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': url.origin, 'X-Title': 'Personal AI' }, body: JSON.stringify({ model: env.VLLM_MODEL || 'nvidia/Qwen3.6-35B-A3B-NVFP4', messages, max_tokens: 800, temperature: 0.7 }) });
+          const response = await upstream(endpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeout), headers: { Authorization: `Bearer ${env.VLLM_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': url.origin, 'X-Title': 'Personal AI' }, body: JSON.stringify({ model: env.VLLM_MODEL || 'qwen/qwen-2.5-72b-instruct', messages, max_tokens: 1500, temperature: 0.7 }) });
           if (!response.ok) {
             await response.body?.cancel();
             return json({ error: response.status === 401 || response.status === 403 ? 'KI-Server lehnt die Server-Anmeldung ab.' : response.status === 402 ? 'KI-Guthaben aufgebraucht. Bitte Anbieter-Konto prüfen.' : response.status === 429 ? 'KI-Server ist ausgelastet. Später erneut versuchen.' : 'KI-Server ist derzeit nicht verfügbar.', code: 'MODEL_UNAVAILABLE' }, 502);
@@ -324,7 +324,9 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
             text += decoder.decode(value, { stream: true });
           }
           text += decoder.decode();
-          reply = JSON.parse(text).choices?.[0]?.message?.content;
+          const parsed = JSON.parse(text);
+          const msg = parsed.choices?.[0]?.message;
+          reply = msg?.content || msg?.reasoning;
           if (typeof reply !== 'string' || !reply.trim() || reply.length > 12000) throw new Error('invalid');
         } catch (error) {
           const timedOut = ['TimeoutError', 'AbortError'].includes(error.name);

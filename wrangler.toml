@@ -5,7 +5,7 @@ keep_vars = true
 
 [vars]
 VLLM_BASE_URL = "https://openrouter.ai/api/v1"
-VLLM_MODEL = "qwen/qwen3.7-flash"
+VLLM_MODEL = "qwen/qwen-2.5-72b-instruct"
 
 [[d1_databases]]
 binding = "DB"

@@ -848,3 +848,31 @@ body {
     font-size: 13px;
   }
 }
+
+.status-dot.active{background:#00e676!important;box-shadow:0 0 10px #00e676aa,0 0 0 2px rgba(0,230,118,0.25)!important}
+.connection-pill.online{border-color:rgba(0,230,118,0.25)!important;background:rgba(0,230,118,0.06)!important;color:#e1e7f8!important}
+
+/* Accessibility Skip Link */
+.skip-link {
+  position: absolute;
+  top: -9999px;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+}
+.skip-link:focus {
+  top: 10px;
+  left: 10px;
+  width: auto;
+  height: auto;
+  clip: auto;
+  background: #000;
+  color: #fff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  z-index: 99999;
+}
+
