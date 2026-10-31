@@ -1680,3 +1680,43 @@ body {
 .tuning-content{font-size:11px;color:#e2e8f0;line-height:1.5;white-space:pre-wrap}
 .tuning-tip-box.ai-active{background:linear-gradient(135deg,rgba(0,230,118,.1),rgba(16,185,129,.04));border-color:rgba(0,230,118,.35);box-shadow:0 0 16px rgba(0,230,118,.08)}
 .ai-generated-tag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(0,230,118,.15);border:1px solid rgba(0,230,118,.4);color:#00e676}
+
+/* System Modules Grid in Settings */
+.system-modules-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:768px){.system-modules-grid{grid-template-columns:1fr}}
+.system-module-card{display:flex;align-items:center;gap:12px;padding:16px;border-radius:18px;text-align:left;cursor:pointer;transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease}
+.system-module-card:hover{transform:translateY(-2px);border-color:rgba(255,255,255,.2);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.module-icon{font-size:24px;line-height:1;flex-shrink:0}
+.module-info{flex:1;min-width:0}
+.module-info strong{display:block;font-size:13px;color:#fff}
+.module-info small{display:block;font-size:10px;color:#8fa0ba;margin-top:2px}
+.module-badge{font-size:8px;font-weight:700;padding:2px 7px;border-radius:10px;text-transform:uppercase}
+.module-badge.online{background:rgba(0,230,118,.15);border:1px solid rgba(0,230,118,.35);color:#00e676}
+
+/* Automations Suite View */
+.automations-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px}
+@media(max-width:768px){.automations-grid{grid-template-columns:1fr}}
+.automation-card{border-radius:20px;padding:18px}
+.auto-top{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+.auto-icon{font-size:24px;line-height:1;flex-shrink:0}
+.auto-top>div{flex:1;min-width:0}
+.auto-top strong{display:block;font-size:13px;color:#fff}
+.auto-top small{display:block;font-size:11px;color:#94a3b8;line-height:1.4;margin-top:4px}
+.auto-status-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);font-size:10px}
+.auto-pill.active{font-size:9px;font-weight:700;padding:3px 8px;border-radius:6px;background:rgba(0,230,118,.12);border:1px solid rgba(0,230,118,.3);color:#00e676}
+.auto-time{color:#64748b;font-size:10px}
+.automation-actions-bar{padding:18px;border-radius:20px;text-align:center}
+
+/* Toggle Switch Component */
+.toggle-switch{position:relative;display:inline-block;width:44px;height:24px;flex-shrink:0}
+.toggle-switch input{opacity:0;width:0;height:0}
+.toggle-slider{position:absolute;cursor:pointer;inset:0;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);border-radius:24px;transition:.3s}
+.toggle-slider:before{position:absolute;content:"";height:18px;width:18px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:.3s}
+.toggle-switch input:checked+.toggle-slider{background:linear-gradient(135deg,#00e676,#10b981);border-color:#00e676}
+.toggle-switch input:checked+.toggle-slider:before{transform:translateX(20px)}
+
+/* Slot Edit Dialog & Card Buttons */
+.slot-dialog-top{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+.slot-dialog-avatar{font-size:38px;line-height:1}
+.slot-card-actions{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}
+.slot-edit-btn{font-size:10px;padding:4px 10px;border-radius:8px}

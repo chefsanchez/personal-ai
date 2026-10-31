@@ -358,6 +358,45 @@ Erstelle für Philipp eine präzise, direkt umsetzbare Abstimmungs-Empfehlung in
       updatedAt: new Date().toISOString()
     });
   }
+
+  if (url.pathname === '/api/admin/family-slots' && request.method === 'GET') {
+    const savedSlots = await env.DB.prepare("SELECT id, session_id, content, updated_at FROM ai_memories WHERE category = 'family_slot'").all();
+    const map = {};
+    for (const row of (savedSlots.results || [])) {
+      try {
+        const parsed = JSON.parse(row.content);
+        if (parsed?.id) map[parsed.id] = { ...parsed, updatedAt: row.updated_at };
+      } catch {}
+    }
+    return json({ slots: map });
+  }
+
+  if (url.pathname === '/api/admin/family-slots' && request.method === 'POST') {
+    const body = await readJson(request).catch(() => ({}));
+    const slotId = typeof body.slotId === 'string' ? body.slotId.trim() : '';
+    if (!slotId) throw new InputError('slotId erforderlich');
+    const firstName = typeof body.firstName === 'string' ? body.firstName.trim().slice(0, 50) : '';
+    const greeting = typeof body.greeting === 'string' ? body.greeting.trim().slice(0, 100) : 'Du';
+    const email = typeof body.email === 'string' ? body.email.trim().slice(0, 100) : '';
+    const role = typeof body.role === 'string' ? body.role.trim().slice(0, 100) : 'Familie';
+    const notes = typeof body.notes === 'string' ? body.notes.trim().slice(0, 2000) : '';
+    const avatar = typeof body.avatar === 'string' ? body.avatar.trim().slice(0, 10) : '👤';
+
+    const slotPayload = { id: slotId, firstName, greeting, email, role, notes, avatar, configured: true };
+    const memoryId = `slot:${slotId}`;
+
+    await env.DB.prepare("INSERT INTO ai_memories (id, session_id, content, category, created_at, updated_at) VALUES (?, ?, ?, 'family_slot', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP").bind(memoryId, memoryId, JSON.stringify(slotPayload)).run();
+
+    const briefingContent = `Persönliches Briefing für ${firstName || slotId}: Anrede/Ton: ${greeting}. Rolle: ${role}. Hintergrundwissen & Interessen: ${notes}`;
+    const briefingId = `briefing:${slotId}`;
+    await env.DB.prepare("INSERT INTO ai_memories (id, session_id, content, category, created_at, updated_at) VALUES (?, ?, ?, 'memory', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP").bind(briefingId, memoryId, briefingContent).run();
+
+    if (email) {
+      await env.DB.prepare("UPDATE app_accounts SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?").bind(firstName, email).run();
+    }
+
+    return json({ ok: true, slot: slotPayload });
+  }
   if (url.pathname === '/api/admin/stats' && request.method === 'GET') {
     const [counts, userMemories, recentMemories] = await Promise.all([
       env.DB.prepare("SELECT (SELECT COUNT(*) FROM ai_memories WHERE category = 'memory') AS total_memories, (SELECT COUNT(DISTINCT conversation_id) FROM chat_messages) AS total_conversations, (SELECT COUNT(*) FROM chat_messages) AS total_messages, (SELECT COUNT(*) FROM app_accounts WHERE status = 'active') AS active_users").first(),

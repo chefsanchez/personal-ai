@@ -192,3 +192,58 @@ test('Admin POST /api/admin/ai-tuning lässt die KI selbst Abstimmungs-Empfehlun
   assert.equal(aliceStats.isAiGenerated, true);
   assert.equal(aliceStats.tuningSuggestion, data.tuningSuggestion);
 });
+
+test('Admin GET/POST /api/admin/family-slots: 7 Familien-Slots personalisieren und in D1 synchronisieren', async t => {
+  const f = await fixture(t);
+  // Unbefugte erhalten 403
+  assert.equal((await f.call('alice', '/api/admin/family-slots')).status, 403);
+  assert.equal((await f.call('alice', '/api/admin/family-slots', { method: 'POST', body: { slotId: 'laura' } })).status, 403);
+
+  // Admin liest leere/vorhandene Slots
+  const getRes1 = await f.call('owner', '/api/admin/family-slots');
+  assert.equal(getRes1.status, 200);
+  const data1 = await getRes1.json();
+  assert.ok(data1.slots);
+
+  // Fehlendes slotId wirft 400
+  assert.equal((await f.call('owner', '/api/admin/family-slots', { method: 'POST', body: {} })).status, 400);
+
+  // Slot Laura konfigurieren
+  const postRes = await f.call('owner', '/api/admin/family-slots', {
+    method: 'POST',
+    body: {
+      slotId: 'laura',
+      firstName: 'Laura',
+      greeting: 'Hallo Schatz',
+      email: 'laura@example.test',
+      role: '🌸 Partnerin & VIP',
+      notes: 'Liebt Tiere, Fashion und entspannte Urlaube',
+      avatar: '🌸'
+    }
+  });
+  assert.equal(postRes.status, 200);
+  const postData = await postRes.json();
+  assert.equal(postData.ok, true);
+  assert.equal(postData.slot.firstName, 'Laura');
+  assert.equal(postData.slot.greeting, 'Hallo Schatz');
+
+  // Verify GET /api/admin/family-slots liefert Laura zurück
+  const getRes2 = await f.call('owner', '/api/admin/family-slots');
+  assert.equal(getRes2.status, 200);
+  const data2 = await getRes2.json();
+  assert.ok(data2.slots.laura);
+  assert.equal(data2.slots.laura.firstName, 'Laura');
+  assert.equal(data2.slots.laura.greeting, 'Hallo Schatz');
+
+  // Verify persistence in D1
+  const slotRow = await f.db.prepare("SELECT content FROM ai_memories WHERE id = 'slot:laura' AND category = 'family_slot'").first();
+  assert.ok(slotRow);
+  const parsedSlot = JSON.parse(slotRow.content);
+  assert.equal(parsedSlot.firstName, 'Laura');
+
+  const briefingRow = await f.db.prepare("SELECT content FROM ai_memories WHERE id = 'briefing:laura' AND category = 'memory'").first();
+  assert.ok(briefingRow);
+  assert.match(briefingRow.content, /Hallo Schatz/);
+  assert.match(briefingRow.content, /Partnerin & VIP/);
+});
+
