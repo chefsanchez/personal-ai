@@ -742,7 +742,7 @@ document.querySelectorAll('[data-color]').forEach(button => button.onclick = () 
 if (localStorage.getItem('pai_color')) document.documentElement.style.setProperty('--accent',localStorage.getItem('pai_color'));
 
 const applyTheme = (theme, manual = false) => {
-  if (!['default','bmw-520i','ultra-workstation',''].includes(theme || '')) theme = 'default';
+  if (!['default','stealth-carbon','m-power','syndicate-emerald','cyberpunk-amber','bmw-520i','ultra-workstation',''].includes(theme || '')) theme = 'default';
   const activeTheme = (!theme || theme === 'default') ? '' : theme;
   if (!activeTheme) {
     delete document.documentElement.dataset.theme;
@@ -761,6 +761,22 @@ const applyTheme = (theme, manual = false) => {
     } else if (activeTheme === 'ultra-workstation') {
       badge.textContent = 'WORKSTATION';
       badge.title = 'Owner Ultra Workstation PC';
+      badge.hidden = false;
+    } else if (activeTheme === 'stealth-carbon') {
+      badge.textContent = 'STEALTH';
+      badge.title = 'Stealth Carbon OLED Cockpit';
+      badge.hidden = false;
+    } else if (activeTheme === 'm-power') {
+      badge.textContent = 'M-POWER';
+      badge.title = 'M-Performance Motorsport Cockpit';
+      badge.hidden = false;
+    } else if (activeTheme === 'syndicate-emerald') {
+      badge.textContent = 'CASH VAULT';
+      badge.title = 'Syndicate Emerald Vault Cockpit';
+      badge.hidden = false;
+    } else if (activeTheme === 'cyberpunk-amber') {
+      badge.textContent = 'AMBER';
+      badge.title = 'Cyberpunk Amber Terminal Cockpit';
       badge.hidden = false;
     } else {
       badge.hidden = true;
@@ -806,7 +822,7 @@ autoDetectTheme();
 window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'l') {
     event.preventDefault();
-    const themes = ['default', 'bmw-520i', 'ultra-workstation'];
+    const themes = ['default', 'stealth-carbon', 'm-power', 'syndicate-emerald', 'cyberpunk-amber', 'bmw-520i', 'ultra-workstation'];
     const current = document.documentElement.dataset.theme || 'default';
     const next = themes[(themes.indexOf(current) + 1) % themes.length];
     applyTheme(next, true);
