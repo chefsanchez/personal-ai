@@ -112,6 +112,16 @@ async function listConversations(db, sessionId) {
     ORDER BY latest_id DESC LIMIT 30`).bind(sessionId).all();
   return { conversations: (result.results || []).map(({ latest_id, ...conversation }) => conversation) };
 }
+async function listProjects(db, sessionId) {
+  const [projectsRes, tasksRes] = await Promise.all([
+    db.prepare("SELECT id, title, color, status, created_at, updated_at FROM user_projects WHERE session_id = ? ORDER BY updated_at DESC LIMIT 100").bind(sessionId).all(),
+    db.prepare("SELECT id, project_id, title, done, priority, due_date, created_at, updated_at FROM user_tasks WHERE session_id = ? ORDER BY done ASC, updated_at DESC LIMIT 500").bind(sessionId).all()
+  ]);
+  return {
+    projects: projectsRes.results || [],
+    tasks: (tasksRes.results || []).map(t => ({ ...t, done: Boolean(t.done) }))
+  };
+}
 
 async function readHistory(db, sessionId, id) {
   const result = await db.prepare('SELECT id, role, content, created_at FROM chat_messages WHERE session_id = ? AND conversation_id = ? ORDER BY id DESC LIMIT 30').bind(sessionId, id).all();
@@ -270,6 +280,60 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
       }
       if (url.pathname === '/api/conversations' && request.method === 'GET') {
         return json(await listConversations(env.DB, identity.id));
+      }
+      if (url.pathname === '/api/projects' && request.method === 'GET') {
+        return json(await listProjects(env.DB, identity.id));
+      }
+      if (url.pathname === '/api/projects' && request.method === 'POST') {
+        const body = await readJson(request);
+        const title = typeof body.title === 'string' ? body.title.trim() : '';
+        if (!title || title.length > 200) throw new InputError('Projekttitel muss 1–200 Zeichen lang sein');
+        const id = typeof body.id === 'string' && body.id ? body.id.slice(0, 100) : crypto.randomUUID();
+        const color = typeof body.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(body.color) ? body.color : '#9cbaff';
+        await env.DB.prepare("INSERT INTO user_projects (id, session_id, title, color) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, color = excluded.color, updated_at = CURRENT_TIMESTAMP").bind(id, identity.id, title, color).run();
+        return json({ ok: true, project: { id, title, color } }, 201);
+      }
+      if (url.pathname === '/api/projects' && request.method === 'DELETE') {
+        const body = await readJson(request).catch(() => ({}));
+        const id = url.searchParams.get('id') || body.id;
+        if (!id || typeof id !== 'string') throw new InputError('Gültige id erforderlich');
+        await env.DB.prepare("DELETE FROM user_tasks WHERE session_id = ? AND project_id = ?").bind(identity.id, id).run();
+        const result = await env.DB.prepare("DELETE FROM user_projects WHERE session_id = ? AND id = ?").bind(identity.id, id).run();
+        return result.meta.changes ? json({ ok: true }) : json({ error: 'Projekt nicht gefunden' }, 404);
+      }
+      if (url.pathname === '/api/tasks' && request.method === 'POST') {
+        const body = await readJson(request);
+        const title = typeof body.title === 'string' ? body.title.trim() : '';
+        if (!title || title.length > 500) throw new InputError('Aufgabentitel muss 1–500 Zeichen lang sein');
+        const id = typeof body.id === 'string' && body.id ? body.id.slice(0, 100) : crypto.randomUUID();
+        const projectId = typeof body.project_id === 'string' && body.project_id ? body.project_id.slice(0, 100) : null;
+        const priority = ['low', 'normal', 'high'].includes(body.priority) ? body.priority : 'normal';
+        const dueDate = typeof body.due_date === 'string' ? body.due_date.slice(0, 50) : null;
+        await env.DB.prepare("INSERT INTO user_tasks (id, session_id, project_id, title, done, priority, due_date) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, done = excluded.done, priority = excluded.priority, due_date = excluded.due_date, updated_at = CURRENT_TIMESTAMP").bind(id, identity.id, projectId, title, body.done ? 1 : 0, priority, dueDate).run();
+        return json({ ok: true, task: { id, project_id: projectId, title, done: Boolean(body.done), priority, due_date: dueDate } }, 201);
+      }
+      if (url.pathname === '/api/tasks' && request.method === 'PATCH') {
+        const body = await readJson(request);
+        const id = url.searchParams.get('id') || body.id;
+        if (!id || typeof id !== 'string') throw new InputError('Gültige id erforderlich');
+        const done = body.done === undefined ? null : (body.done ? 1 : 0);
+        const title = typeof body.title === 'string' && body.title.trim() ? body.title.trim() : null;
+        if (done === null && title === null) throw new InputError('Keine Änderungen übergeben');
+        if (done !== null && title !== null) {
+          await env.DB.prepare("UPDATE user_tasks SET done = ?, title = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ? AND id = ?").bind(done, title, identity.id, id).run();
+        } else if (done !== null) {
+          await env.DB.prepare("UPDATE user_tasks SET done = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ? AND id = ?").bind(done, identity.id, id).run();
+        } else {
+          await env.DB.prepare("UPDATE user_tasks SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ? AND id = ?").bind(title, identity.id, id).run();
+        }
+        return json({ ok: true });
+      }
+      if (url.pathname === '/api/tasks' && request.method === 'DELETE') {
+        const body = await readJson(request).catch(() => ({}));
+        const id = url.searchParams.get('id') || body.id;
+        if (!id || typeof id !== 'string') throw new InputError('Gültige id erforderlich');
+        const result = await env.DB.prepare("DELETE FROM user_tasks WHERE session_id = ? AND id = ?").bind(identity.id, id).run();
+        return result.meta.changes ? json({ ok: true }) : json({ error: 'Aufgabe nicht gefunden' }, 404);
       }
       if (url.pathname === '/api/chat' && request.method === 'POST') {
         const body = await readJson(request);

@@ -9,7 +9,7 @@ import { authorize, verifyAccess } from '../src/auth.js';
 
 const token = 'local-test-only-'.repeat(3);
 const baselineMigration = await readFile(new URL('../migrations/0001_memory_and_history.sql',import.meta.url),'utf8');
-const migration = (await Promise.all(['0001_memory_and_history.sql','0002_accounts_profiles.sql','0003_terms_acceptance.sql'].map(name => readFile(new URL('../migrations/' + name, import.meta.url),'utf8')))).join('\n');
+const migration = (await Promise.all(['0001_memory_and_history.sql','0002_accounts_profiles.sql','0003_terms_acceptance.sql','0004_projects_and_tasks.sql'].map(name => readFile(new URL('../migrations/' + name, import.meta.url),'utf8')))).join('\n');
 const { privateKey, publicKey } = await generateKeyPair('RS256');
 const jwk = { ...await exportJWK(publicKey), kid:'test-key', alg:'RS256', use:'sig' };
 const accessEnv = { ACCESS_TEAM_DOMAIN:'personal-ai-test.cloudflareaccess.com', ACCESS_AUD:'test-audience' };
@@ -257,3 +257,41 @@ test('Admin: Nur Betreiber darf Nutzerkonten verwalten und sperren', async t => 
 
 
 
+
+test('D1: Projekte und Aufgaben anlegen, lesen, abhaken und löschen', async t => {
+  const f = await fixture(t);
+    // 1. Create project
+  const p1 = await f.call('/api/projects', { method: 'POST', body: { title: 'Business MVP', color: '#9cbaff' } });
+  assert.equal(p1.status, 201);
+  const p1Data = await p1.json();
+  assert.equal(p1Data.project.title, 'Business MVP');
+
+  // 2. Create tasks
+  const t1 = await f.call('/api/tasks', { method: 'POST', body: { title: 'Mahnungen prüfen', project_id: p1Data.project.id, priority: 'high' } });
+  assert.equal(t1.status, 201);
+  const t1Data = await t1.json();
+  assert.equal(t1Data.task.title, 'Mahnungen prüfen');
+  assert.equal(t1Data.task.done, false);
+
+  // 3. List
+  const list = await f.call('/api/projects');
+  assert.equal(list.status, 200);
+  const listData = await list.json();
+  assert.equal(listData.projects.length, 1);
+  assert.equal(listData.tasks.length, 1);
+
+  // 4. Patch task (mark done)
+  const patch = await f.call('/api/tasks?id=' + t1Data.task.id, { method: 'PATCH', body: { done: true } });
+  assert.equal(patch.status, 200);
+
+  const listAfterPatch = await (await f.call('/api/projects')).json();
+  assert.equal(listAfterPatch.tasks[0].done, true);
+
+  // 5. Delete project
+  const del = await f.call('/api/projects?id=' + p1Data.project.id, { method: 'DELETE' });
+  assert.equal(del.status, 200);
+
+  const listAfterDel = await (await f.call('/api/projects')).json();
+  assert.equal(listAfterDel.projects.length, 0);
+  assert.equal(listAfterDel.tasks.length, 0);
+});
