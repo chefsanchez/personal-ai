@@ -303,7 +303,7 @@ test('D1: Custom Agents auflisten, erstellen, ansprechen und löschen', async t 
   const res1 = await f.call('/api/agents');
   assert.equal(res1.status, 200);
   const data1 = await res1.json();
-  assert.equal(data1.agents.length, 5);
+  assert.equal(data1.agents.length, 6);
   assert.equal(data1.agents[0].id, 'core');
   assert.equal(data1.agents[1].id, 'cfo');
 
@@ -325,7 +325,7 @@ test('D1: Custom Agents auflisten, erstellen, ansprechen und löschen', async t 
   // 3. List again -> 6 agents
   const res2 = await f.call('/api/agents');
   const data2 = await res2.json();
-  assert.equal(data2.agents.length, 6);
+  assert.equal(data2.agents.length, 7);
   assert.equal(data2.agents.some(a => a.id === createdAgent.id), true);
 
   // 4. Chat targeting agent via agent_id
@@ -354,6 +354,19 @@ test('D1: Custom Agents auflisten, erstellen, ansprechen und löschen', async t 
   const mentionData = await mentionRes.json();
   assert.equal(mentionData.agent.id, 'cfo');
 
+  // 5b. Chat targeting coding agent via @code alias
+  const coderRes = await f.call('/api/chat', {
+    method: 'POST',
+    body: {
+      conversation_id: 'conv-agent-coder',
+      messages: [{ role: 'user', content: '@code Schreibe mir eine TypeScript Utility Funktion.' }]
+    }
+  });
+  assert.equal(coderRes.status, 200);
+  const coderData = await coderRes.json();
+  assert.equal(coderData.agent.id, 'coder');
+  assert.equal(coderData.agent.avatar, '⚡');
+
   // 6. Delete default agent should fail
   const delDefault = await f.call('/api/agents?id=core', { method: 'DELETE' });
   assert.equal(delDefault.status, 400);
@@ -364,5 +377,5 @@ test('D1: Custom Agents auflisten, erstellen, ansprechen und löschen', async t 
 
   // 8. List again -> 5 default agents
   const res3 = await f.call('/api/agents');
-  assert.equal((await res3.json()).agents.length, 5);
+  assert.equal((await res3.json()).agents.length, 6);
 });

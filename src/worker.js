@@ -133,6 +133,15 @@ export const DEFAULT_AGENTS = [
     is_default: true
   },
   {
+    id: 'coder',
+    name: 'Dev-Titan (Claude 3.5 Level)',
+    avatar: '⚡',
+    role: 'Elite Full-Stack & Systems Architect',
+    system_prompt: 'Du bist Dev-Titan – der absolute Elite-Coding-Agent von Philipps AI, auf dem Niveau von Claude 3.5 Sonnet und führenden Software-Architekten.\n\nDeine unumstößlichen Programmierregeln:\n1. Vollständiger & funktionsfähiger Code: Schreibe NIE Platzhalter wie // TODO oder // Implementiere hier. Du lieferst ausnahmslos den vollständigen, lauffähigen Codeblock.\n2. Tech-Stack: Cloudflare Workers, Node.js, D1 SQL, TypeScript/JavaScript, Python, Rust, HTML5 Canvas, modernste CSS-Layouts und REST/WebSocket-APIs.\n3. Mobile-First Ergonomie für Philipp: Achte bei Frontend-Code strikt auf responsive Layouts, Zero-Overflow (kein unabsichtliches horizontales Scrollen auf Smartphones) und Touch-Targets von mindestens 44x44px.\n4. Formatierung: Jeder Codeblock muss präzise mit korrekter Sprachkennung ausgezeichnet sein (```html, ```javascript, ```css, ```python, ```sql).\n5. Kommunikation: Knackig, direkt und lösungsorientiert. Erkläre in 2-3 Sätzen die Architektur und gib sofort den vollständigen Code.',
+    status: 'active',
+    is_default: true
+  },
+  {
     id: 'dealmaker',
     name: 'Der Dealmaker',
     avatar: '⚖️',
@@ -438,7 +447,26 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
         let activeAgent = DEFAULT_AGENTS[0];
         const lastUserMsg = safeMessages.at(-1)?.content || '';
         const mentionMatch = lastUserMsg.match(/^@([a-zA-Z0-9_-]+)/);
-        const requestedAgentKey = (body.agent_id || (mentionMatch ? mentionMatch[1] : '')).toLowerCase();
+        let requestedAgentKey = (body.agent_id || (mentionMatch ? mentionMatch[1] : '')).toLowerCase();
+        const agentAliases = {
+          'code': 'coder',
+          'coding': 'coder',
+          'dev': 'coder',
+          'claude': 'coder',
+          'titan': 'coder',
+          'programmieren': 'coder',
+          'finance': 'cfo',
+          'geld': 'cfo',
+          'legal': 'dealmaker',
+          'anwalt': 'dealmaker',
+          'vertrag': 'dealmaker',
+          'tech': 'techlead',
+          'sales': 'closer',
+          'vertrieb': 'closer'
+        };
+        if (agentAliases[requestedAgentKey]) {
+          requestedAgentKey = agentAliases[requestedAgentKey];
+        }
         if (requestedAgentKey) {
           const allAgents = await listAgents(env.DB, identity.id);
           const found = allAgents.agents.find(a => 
@@ -465,33 +493,84 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
           "- Interaktivität: Halte Antworten knackig und biete am Ende gerne 2-3 konkrete nächste Schritte oder Entscheidungs-Pills an.\n\n" +
           "Erinnerungen aus der Datenbank:\n" + JSON.stringify(memories);
         const messages = [{ role: 'system', content: systemPrompt }, ...safeMessages];
+        const candidateModels = (activeAgent.id === 'coder' || activeAgent.id === 'techlead' || body.model)
+          ? [
+              body.model,
+              'anthropic/claude-3.5-sonnet',
+              'deepseek/deepseek-chat',
+              'qwen/qwen-2.5-coder-32b-instruct',
+              env.VLLM_MODEL || 'qwen/qwen-2.5-72b-instruct'
+            ].filter(Boolean)
+          : [env.VLLM_MODEL || 'qwen/qwen-2.5-72b-instruct'];
+
         const timeout = Math.max(1000, Math.min(120000, Number(env.VLLM_TIMEOUT_MS) || 60000));
         let reply;
+        let usedModel = candidateModels[0];
         try {
-          // Workers supports manual/follow, but rejects redirect:'error'. Never
-          // follow upstream redirects with the model provider's bearer secret.
-          const response = await upstream(endpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeout), headers: { Authorization: `Bearer ${env.VLLM_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': url.origin, 'X-Title': 'Philipps AI' }, body: JSON.stringify({ model: env.VLLM_MODEL || 'qwen/qwen-2.5-72b-instruct', messages, max_tokens: 1500, temperature: 0.7 }) });
-          if (!response.ok) {
-            await response.body?.cancel();
-            return json({ error: response.status === 401 || response.status === 403 ? 'KI-Server lehnt die Server-Anmeldung ab.' : response.status === 402 ? 'KI-Guthaben aufgebraucht. Bitte Anbieter-Konto prüfen.' : response.status === 429 ? 'KI-Server ist ausgelastet. Später erneut versuchen.' : 'KI-Server ist derzeit nicht verfügbar.', code: 'MODEL_UNAVAILABLE' }, 502);
+          for (let i = 0; i < candidateModels.length; i++) {
+            const currentModel = candidateModels[i];
+            usedModel = currentModel;
+            const isLast = (i === candidateModels.length - 1);
+            try {
+              const response = await upstream(endpoint, {
+                method: 'POST',
+                redirect: 'manual',
+                signal: AbortSignal.timeout(timeout),
+                headers: {
+                  Authorization: `Bearer ${env.VLLM_API_KEY}`,
+                  'Content-Type': 'application/json',
+                  'HTTP-Referer': url.origin,
+                  'X-Title': 'Philipps AI'
+                },
+                body: JSON.stringify({
+                  model: currentModel,
+                  messages,
+                  max_tokens: 1800,
+                  temperature: 0.6
+                })
+              });
+
+              if (!response.ok) {
+                await response.body?.cancel();
+                if (!isLast && [400, 402, 404].includes(response.status)) {
+                  continue;
+                }
+                return json({
+                  error: response.status === 401 || response.status === 403
+                    ? 'KI-Server lehnt die Server-Anmeldung ab.'
+                    : response.status === 402
+                    ? 'KI-Guthaben aufgebraucht. Bitte Anbieter-Konto prüfen.'
+                    : response.status === 429
+                    ? 'KI-Server ist ausgelastet. Später erneut versuchen.'
+                    : 'KI-Server ist derzeit nicht verfügbar.',
+                  code: 'MODEL_UNAVAILABLE'
+                }, 502);
+              }
+
+              const reader = response.body?.getReader();
+              if (!reader) throw new Error('empty');
+              let size = 0;
+              const decoder = new TextDecoder();
+              let text = '';
+              while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                size += value.byteLength;
+                if (size > 1048576) { await reader.cancel(); throw new Error('large'); }
+                text += decoder.decode(value, { stream: true });
+              }
+              text += decoder.decode();
+              const parsed = JSON.parse(text);
+              const msg = parsed.choices?.[0]?.message;
+              reply = msg?.content || msg?.reasoning;
+              if (typeof reply !== 'string' || !reply.trim() || reply.length > 12000) throw new Error('invalid');
+              break;
+            } catch (innerErr) {
+              if (['TimeoutError', 'AbortError'].includes(innerErr.name) || isLast) {
+                throw innerErr;
+              }
+            }
           }
-          const reader = response.body?.getReader();
-          if (!reader) throw new Error('empty');
-          let size = 0;
-          const decoder = new TextDecoder();
-          let text = '';
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            size += value.byteLength;
-            if (size > 1048576) { await reader.cancel(); throw new Error('large'); }
-            text += decoder.decode(value, { stream: true });
-          }
-          text += decoder.decode();
-          const parsed = JSON.parse(text);
-          const msg = parsed.choices?.[0]?.message;
-          reply = msg?.content || msg?.reasoning;
-          if (typeof reply !== 'string' || !reply.trim() || reply.length > 12000) throw new Error('invalid');
         } catch (error) {
           const timedOut = ['TimeoutError', 'AbortError'].includes(error.name);
           return json({ error: timedOut ? 'KI-Antwort dauert zu lange. Erreichbarkeit des Modellservers prüfen.' : 'Keine gültige Antwort vom KI-Server. Verbindung und Modell prüfen.', code: timedOut ? 'MODEL_TIMEOUT' : 'MODEL_UNAVAILABLE' }, timedOut ? 504 : 502);

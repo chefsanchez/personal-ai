@@ -91,6 +91,16 @@ function renderFormattedText(container, text) {
         const langBadge = document.createElement('span'); langBadge.className = 'code-lang'; langBadge.textContent = lang;
         wrap.appendChild(langBadge);
       }
+      const isRunnable = ['html', 'svg', 'xml'].includes((lang || '').toLowerCase()) || 
+        (code.includes('<html') || code.includes('<!DOCTYPE') || (code.includes('<div') && code.includes('</')));
+      if (isRunnable) {
+        const previewBtn = document.createElement('button');
+        previewBtn.className = 'preview-code-btn';
+        previewBtn.type = 'button';
+        previewBtn.textContent = '▶ Vorschau';
+        previewBtn.onclick = () => openCodeSandbox(code);
+        wrap.appendChild(previewBtn);
+      }
       const copyBtn = document.createElement('button'); copyBtn.className = 'copy-code-btn'; copyBtn.type = 'button'; copyBtn.textContent = 'Kopieren';
       copyBtn.onclick = async () => {
         try {
