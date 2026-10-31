@@ -13,7 +13,7 @@ import { generateKeyPair, exportJWK, SignJWT } from 'jose';
 const root = fileURLToPath(new URL('../',import.meta.url));
 const execute = promisify(execFile);
 const token = 'runtime-test-only-'.repeat(3);
-const migration = (await Promise.all(['0001_memory_and_history.sql','0002_accounts_profiles.sql','0003_terms_acceptance.sql','0004_projects_and_tasks.sql'].map(name => readFile(new URL('../migrations/' + name, import.meta.url),'utf8')))).join('\n');
+const migration = (await Promise.all(['0001_memory_and_history.sql','0002_accounts_profiles.sql','0003_terms_acceptance.sql','0004_projects_and_tasks.sql','0005_custom_agents.sql'].map(name => readFile(new URL('../migrations/' + name, import.meta.url),'utf8')))).join('\n');
 
 async function bundleFixture() {
   const directory = await mkdtemp(join(tmpdir(),'personal-ai-runtime-'));
