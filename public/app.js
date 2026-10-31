@@ -2067,6 +2067,45 @@ function renderFamilySlots() {
   `).join('');
 }
 
+async function triggerAiTuning(userId, btn) {
+  const contentEl = $(`tuneContent_${userId}`);
+  const origBtnText = btn.innerHTML;
+  try {
+    btn.disabled = true;
+    btn.innerHTML = '<span style="opacity:0.8;">⏳ KI analysiert …</span>';
+    if (contentEl) contentEl.innerHTML = '<span class="muted">Die KI durchleuchtet die Daten und Chats dieses Nutzers …</span>';
+    const res = await api('/api/admin/ai-tuning', {
+      method: 'POST',
+      body: JSON.stringify({ userId })
+    });
+    if (contentEl) {
+      contentEl.textContent = res.tuningSuggestion;
+      const box = contentEl.closest('.tuning-tip-box');
+      if (box) {
+        box.classList.add('ai-active');
+        const icon = box.querySelector('.tuning-tip-icon');
+        if (icon) icon.textContent = '🤖';
+        const title = box.querySelector('.tuning-header-row strong');
+        if (title) title.textContent = 'KI-Systemarchitekt Empfehlung für Philipp:';
+      }
+      const card = contentEl.closest('.analytics-user-card');
+      const badgeRow = card?.querySelector('.analytics-badge-row');
+      if (badgeRow && !badgeRow.querySelector('.ai-generated-tag')) {
+        const tag = document.createElement('span');
+        tag.className = 'ai-generated-tag';
+        tag.textContent = '✨ Live KI-Tuning';
+        badgeRow.appendChild(tag);
+      }
+    }
+    btn.innerHTML = '✨ Neu berechnen';
+    btn.disabled = false;
+  } catch (err) {
+    if (contentEl) contentEl.textContent = 'Fehler bei der KI-Analyse: ' + err.message;
+    btn.innerHTML = origBtnText;
+    btn.disabled = false;
+  }
+}
+
 async function loadAdminStats() {
   if (!connected || !isAdmin) return;
   try {
@@ -2084,7 +2123,7 @@ async function loadAdminStats() {
       } else {
         analyticsBox.classList.remove('empty');
         analyticsBox.innerHTML = data.usersAnalytics.map(u => `
-          <div class="analytics-user-card">
+          <div class="analytics-user-card" id="userAnalyticsCard_${esc(u.userId)}">
             <div class="analytics-top">
               <div>
                 <span class="analytics-name">${esc(u.userName)}</span>
@@ -2094,17 +2133,27 @@ async function loadAdminStats() {
                 <span class="count-tag">💬 ${u.messageCount} Nachrichten</span>
                 <span class="count-tag">🧠 ${u.memoryCount} Fakten gelernt</span>
                 ${u.topics.map(t => `<span class="topic-tag">${esc(t)}</span>`).join('')}
+                ${u.isAiGenerated ? '<span class="ai-generated-tag">✨ Live KI-Tuning</span>' : ''}
               </div>
             </div>
-            <div class="tuning-tip-box">
-              <span class="tuning-tip-icon">💡</span>
+            <div class="tuning-tip-box ${u.isAiGenerated ? 'ai-active' : ''}">
+              <span class="tuning-tip-icon">${u.isAiGenerated ? '🤖' : '💡'}</span>
               <div class="tuning-tip-text">
-                <strong>Abstimmungs-Empfehlung für Philipp:</strong>
-                <p>${esc(u.tuningSuggestion)}</p>
+                <div class="tuning-header-row">
+                  <strong>${u.isAiGenerated ? 'KI-Systemarchitekt Empfehlung für Philipp:' : 'Vorläufige Abstimmungs-Empfehlung:'}</strong>
+                  <button type="button" class="secondary compact" data-ai-tune="${esc(u.userId)}" title="Jetzt von der KI live analysieren lassen">
+                    <span>${u.isAiGenerated ? '✨ Neu berechnen' : '✨ KI-Abstimmung berechnen'}</span>
+                  </button>
+                </div>
+                <div class="tuning-content" id="tuneContent_${esc(u.userId)}">${esc(u.tuningSuggestion)}</div>
               </div>
             </div>
           </div>
         `).join('');
+
+        analyticsBox.querySelectorAll('[data-ai-tune]').forEach(btn => {
+          btn.onclick = () => triggerAiTuning(btn.dataset.aiTune, btn);
+        });
       }
     }
 
@@ -2131,4 +2180,25 @@ async function loadAdminStats() {
 
 if ($('reloadAdminStats')) {
   $('reloadAdminStats').onclick = () => loadAdminStats();
+}
+
+if ($('tuneAllUsersBtn')) {
+  $('tuneAllUsersBtn').onclick = async () => {
+    const userBtns = Array.from(document.querySelectorAll('[data-ai-tune]'));
+    if (!userBtns.length) return alert('Noch keine Nutzerkonten geladen.');
+    const tuneAllBtn = $('tuneAllUsersBtn');
+    tuneAllBtn.disabled = true;
+    const span = tuneAllBtn.querySelector('span');
+    const orig = span ? span.textContent : '';
+    for (let i = 0; i < userBtns.length; i++) {
+      const b = userBtns[i];
+      if (span) span.textContent = `⏳ KI analysiert (${i + 1}/${userBtns.length}) …`;
+      await triggerAiTuning(b.dataset.aiTune, b);
+    }
+    if (span) span.textContent = '✅ Alle Konten durch KI abgestimmt';
+    setTimeout(() => {
+      tuneAllBtn.disabled = false;
+      if (span) span.textContent = orig;
+    }, 3000);
+  };
 }

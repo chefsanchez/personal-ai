@@ -201,12 +201,167 @@ async function readProfile(db, account) {
   return { consentEnabled: true, profile: profile || null, summaries: summaries.results || [], generationEnabled: false };
 }
 
-async function adminRoute(request, url, env, identity, admin) {
+async function callLlmUpstream({ env, upstream, origin = '', messages, models = [], maxTokens = 1200, temperature = 0.5 }) {
+  if (!env.VLLM_BASE_URL || !env.VLLM_API_KEY) {
+    throw new InputError('KI-Verbindung noch nicht konfiguriert (VLLM_BASE_URL / VLLM_API_KEY)', 503);
+  }
+  let endpoint;
+  try {
+    endpoint = new URL(env.VLLM_BASE_URL);
+    const local = ['127.0.0.1', 'localhost'].includes(endpoint.hostname);
+    if ((endpoint.protocol !== 'https:' && !(local && endpoint.protocol === 'http:')) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) throw new Error();
+    endpoint = `${endpoint.origin}${endpoint.pathname.replace(/\/+$/, '').replace(/\/v1$/, '')}/v1/chat/completions`;
+  } catch {
+    throw new InputError('KI-Server-URL ist ungültig', 503);
+  }
+
+  const candidateModels = (models && models.length)
+    ? models
+    : [env.VLLM_MODEL || 'qwen/qwen-2.5-72b-instruct'];
+  const timeout = Math.max(1000, Math.min(120000, Number(env.VLLM_TIMEOUT_MS) || 60000));
+  let reply;
+  let usedModel = candidateModels[0];
+
+  for (let i = 0; i < candidateModels.length; i++) {
+    const currentModel = candidateModels[i];
+    usedModel = currentModel;
+    const isLast = (i === candidateModels.length - 1);
+    try {
+      const response = await upstream(endpoint, {
+        method: 'POST',
+        redirect: 'manual',
+        signal: AbortSignal.timeout(timeout),
+        headers: {
+          Authorization: `Bearer ${env.VLLM_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': origin,
+          'X-Title': 'Philipps AI'
+        },
+        body: JSON.stringify({
+          model: currentModel,
+          messages,
+          max_tokens: maxTokens,
+          temperature
+        })
+      });
+
+      if (!response.ok) {
+        await response.body?.cancel();
+        if (!isLast && [400, 402, 404].includes(response.status)) {
+          continue;
+        }
+        const err = new Error(
+          response.status === 401 || response.status === 403
+            ? 'KI-Server lehnt die Server-Anmeldung ab.'
+            : response.status === 402
+            ? 'KI-Guthaben aufgebraucht. Bitte Anbieter-Konto prüfen.'
+            : response.status === 429
+            ? 'KI-Server ist ausgelastet. Später erneut versuchen.'
+            : 'KI-Server ist derzeit nicht verfügbar.'
+        );
+        err.status = 502;
+        throw err;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('empty');
+      let size = 0;
+      const decoder = new TextDecoder();
+      let text = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 1048576) { await reader.cancel(); throw new Error('large'); }
+        text += decoder.decode(value, { stream: true });
+      }
+      text += decoder.decode();
+      const parsed = JSON.parse(text);
+      const msg = parsed.choices?.[0]?.message;
+      reply = msg?.content || msg?.reasoning;
+      if (typeof reply !== 'string' || !reply.trim() || reply.length > 12000) throw new Error('invalid');
+      break;
+    } catch (innerErr) {
+      if (['TimeoutError', 'AbortError'].includes(innerErr.name) || isLast) {
+        throw innerErr;
+      }
+    }
+  }
+
+  return { reply, model: usedModel };
+}
+
+async function adminRoute(request, url, env, identity, admin, upstream) {
   if (!admin) return json({ error: 'Nur der Betreiber darf diesen Bereich öffnen', code: 'FORBIDDEN' }, 403);
+  if (url.pathname === '/api/admin/ai-tuning' && request.method === 'POST') {
+    const body = await readJson(request).catch(() => ({}));
+    const targetId = typeof body.userId === 'string' ? body.userId.trim() : '';
+    if (!targetId) throw new InputError('userId erforderlich');
+
+    const target = await env.DB.prepare('SELECT id, email, display_name FROM app_accounts WHERE id = ?').bind(targetId).first();
+    if (!target) return json({ error: 'Nutzer nicht gefunden' }, 404);
+
+    const [memoriesRes, chatRes] = await Promise.all([
+      env.DB.prepare("SELECT content FROM ai_memories WHERE session_id = ? AND category = 'memory' ORDER BY updated_at DESC LIMIT 30").bind(targetId).all(),
+      env.DB.prepare("SELECT role, content FROM chat_messages WHERE session_id = ? ORDER BY id DESC LIMIT 15").bind(targetId).all()
+    ]);
+
+    const userName = target.display_name || target.email || target.id;
+    const memoriesText = (memoriesRes.results || []).map(m => `- ${m.content}`).join('\n');
+    const chatText = (chatRes.results || []).reverse().map(c => `[${c.role}]: ${c.content}`).join('\n');
+
+    const prompt = `Du bist Philipps persönlicher AI-Systemarchitekt und Abstimmungs-Berater für "Philipps AI".
+Philipp hat für seine Familie und Partner individuelle Accounts eingerichtet.
+Analysiere die folgenden Daten von Nutzer "${userName}" (${target.email || target.id}):
+
+[Gelernte Fakten & Erinnerungen]:
+${memoriesText || '(Noch keine Fakten gelernt)'}
+
+[Letzte Chat-Nachrichten]:
+${chatText || '(Noch keine Chat-Historie vorhanden)'}
+
+Erstelle für Philipp eine präzise, direkt umsetzbare Abstimmungs-Empfehlung in 3 kurzen Abschnitten:
+1. 🎯 Kern-Fokus & Interessen: Worauf sollte die KI bei dieser Person primär eingehen?
+2. 🗣️ Tonalität & Ansprache: Welcher Sprachstil (z.B. herzlich, geduldig, sachlich, Macher-Ton) passt am besten?
+3. 💡 Empfohlene Abstimmung für Philipp: Welche konkrete Anweisung oder welches Vorwissen sollte Philipp dem System-Prompt oder Gedächtnis dieser Person hinzufügen, um ihr optimal zu helfen?`;
+
+    const candidateModels = [
+      'deepseek/deepseek-chat',
+      'anthropic/claude-3.5-sonnet',
+      'qwen/qwen-2.5-coder-32b-instruct',
+      env.VLLM_MODEL || 'qwen/qwen-2.5-72b-instruct'
+    ];
+
+    const llmResult = await callLlmUpstream({
+      env,
+      upstream: upstream || ((...args) => fetch(...args)),
+      origin: url.origin,
+      messages: [
+        { role: 'system', content: 'Du bist Philipps persönlicher AI-Systemarchitekt. Analysiere scharf, pragmatisch und direkt auf den Punkt auf Deutsch.' },
+        { role: 'user', content: prompt }
+      ],
+      models: candidateModels,
+      maxTokens: 1200,
+      temperature: 0.5
+    });
+
+    const tuningId = `ai-tuning:${targetId}`;
+    await env.DB.prepare("INSERT INTO ai_memories (id, session_id, content, category, created_at, updated_at) VALUES (?, ?, ?, 'ai_tuning', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP").bind(tuningId, targetId, llmResult.reply).run();
+
+    return json({
+      ok: true,
+      userId: targetId,
+      userName,
+      tuningSuggestion: llmResult.reply,
+      isAiGenerated: true,
+      model: llmResult.model,
+      updatedAt: new Date().toISOString()
+    });
+  }
   if (url.pathname === '/api/admin/stats' && request.method === 'GET') {
     const [counts, userMemories, recentMemories] = await Promise.all([
       env.DB.prepare("SELECT (SELECT COUNT(*) FROM ai_memories WHERE category = 'memory') AS total_memories, (SELECT COUNT(DISTINCT conversation_id) FROM chat_messages) AS total_conversations, (SELECT COUNT(*) FROM chat_messages) AS total_messages, (SELECT COUNT(*) FROM app_accounts WHERE status = 'active') AS active_users").first(),
-      env.DB.prepare("SELECT a.id AS user_id, COALESCE(NULLIF(a.display_name, ''), NULLIF(a.email, ''), a.id) AS user_name, a.email, a.last_seen_at, (SELECT COUNT(*) FROM chat_messages WHERE session_id = a.id) AS message_count, (SELECT COUNT(*) FROM ai_memories WHERE session_id = a.id AND category = 'memory') AS memory_count, GROUP_CONCAT(m.content, ' ||| ') AS sample_memories FROM app_accounts a LEFT JOIN ai_memories m ON m.session_id = a.id AND m.category = 'memory' GROUP BY a.id ORDER BY a.last_seen_at DESC LIMIT 50").all(),
+      env.DB.prepare("SELECT a.id AS user_id, COALESCE(NULLIF(a.display_name, ''), NULLIF(a.email, ''), a.id) AS user_name, a.email, a.last_seen_at, (SELECT COUNT(*) FROM chat_messages WHERE session_id = a.id) AS message_count, (SELECT COUNT(*) FROM ai_memories WHERE session_id = a.id AND category = 'memory') AS memory_count, (SELECT content FROM ai_memories WHERE session_id = a.id AND category = 'ai_tuning' ORDER BY updated_at DESC LIMIT 1) AS ai_tuning, GROUP_CONCAT(m.content, ' ||| ') AS sample_memories FROM app_accounts a LEFT JOIN ai_memories m ON m.session_id = a.id AND m.category = 'memory' GROUP BY a.id ORDER BY a.last_seen_at DESC LIMIT 50").all(),
       env.DB.prepare("SELECT m.id, m.session_id, m.content, m.created_at, COALESCE(NULLIF(a.display_name, ''), NULLIF(a.email, ''), m.session_id) AS user_label FROM ai_memories m LEFT JOIN app_accounts a ON a.id = m.session_id WHERE m.category = 'memory' ORDER BY m.created_at DESC LIMIT 20").all()
     ]);
 
@@ -242,11 +397,14 @@ async function adminRoute(request, url, env, identity, admin) {
         topics.push('Gesundheit & Vitalität');
         suggestions.push('Gesundheit & Vitalität: Sanfte Routinen und alltagstaugliche Bewegungstipps.');
       }
-      const suggestion = suggestions.length > 0
-        ? suggestions.join(' ')
-        : (!sample || u.memory_count === 0
-            ? 'Noch keine Erinnerungen vorhanden. Tipp: Starter-Fragen und einfache Alltagsbeispiele vorschlagen.'
-            : 'Alltägliche Unterstützung aktiv. Keine speziellen Anpassungen nötig.');
+      const hasAiTuning = Boolean(u.ai_tuning && u.ai_tuning.trim());
+      const tuningSuggestion = hasAiTuning ? u.ai_tuning : (
+        suggestions.length > 0
+          ? suggestions.join(' ')
+          : (!sample || u.memory_count === 0
+              ? 'Noch keine Erinnerungen vorhanden. Tipp: Starter-Fragen und einfache Alltagsbeispiele vorschlagen.'
+              : 'Alltägliche Unterstützung aktiv. Keine speziellen Anpassungen nötig.')
+      );
       return {
         userId: u.user_id,
         userName: u.user_name,
@@ -255,7 +413,8 @@ async function adminRoute(request, url, env, identity, admin) {
         messageCount: u.message_count || 0,
         memoryCount: u.memory_count || 0,
         topics: topics.length ? topics : ['Allgemein'],
-        tuningSuggestion: suggestion
+        tuningSuggestion,
+        isAiGenerated: hasAiTuning
       };
     });
 
@@ -373,7 +532,7 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
         return json({ ok: true, consentEnabled: body.enabled, generationEnabled: false });
       }
       if (!termsAccepted && url.pathname !== '/api/status') return json({ error: 'Bitte zuerst die Nutzungsbedingungen lesen und bestätigen', code: 'TERMS_REQUIRED', termsVersion: TERMS_VERSION }, 428);
-      if (url.pathname.startsWith('/api/admin/')) return await adminRoute(request, url, env, identity, admin);
+      if (url.pathname.startsWith('/api/admin/')) return await adminRoute(request, url, env, identity, admin, upstream);
       if (url.pathname === '/api/profile' && request.method === 'GET') return json(await readProfile(env.DB, account));
       if (url.pathname === '/api/status' && request.method === 'GET') {
         try {

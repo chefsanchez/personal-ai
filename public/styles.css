@@ -1577,3 +1577,12 @@ body {
 .recent-learning-item{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06)}
 .recent-user-pill{font-size:9px;font-weight:700;padding:2px 6px;border-radius:6px;background:rgba(0,230,118,.12);border:1px solid rgba(0,230,118,.3);color:#00e676;flex-shrink:0;margin-top:2px}
 .recent-learning-content{font-size:12px;color:#cbd5e1;line-height:1.5}
+
+.learning-header-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.learning-header-bar h3{margin:0}
+.learning-header-bar p{margin:4px 0 0;font-size:11px;color:#94a3b8}
+.shiny-gold-btn{background:linear-gradient(135deg,#f59e0b,#d97706);color:#0f172a;font-weight:700;border:1px solid #fbbf24;box-shadow:0 0 16px rgba(245,158,11,.25)}
+.tuning-header-row{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.tuning-content{font-size:11px;color:#e2e8f0;line-height:1.5;white-space:pre-wrap}
+.tuning-tip-box.ai-active{background:linear-gradient(135deg,rgba(0,230,118,.1),rgba(16,185,129,.04));border-color:rgba(0,230,118,.35);box-shadow:0 0 16px rgba(0,230,118,.08)}
+.ai-generated-tag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:6px;background:rgba(0,230,118,.15);border:1px solid rgba(0,230,118,.4);color:#00e676}

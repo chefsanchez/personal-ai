@@ -157,3 +157,38 @@ test('Admin Live-Lernstatistik aggregiert Daten und empfiehlt Abstimmungen; Unbe
   assert.ok(bobStats.topics.includes('Kfz & Technik'));
   assert.match(bobStats.tuningSuggestion, /Kfz|Wartung|Reparatur/);
 });
+
+
+test('Admin POST /api/admin/ai-tuning lässt die KI selbst Abstimmungs-Empfehlungen generieren', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.call('alice', '/api/admin/ai-tuning', { method: 'POST', body: { userId: 'access:alice' } })).status, 403);
+  assert.equal((await f.call('owner', '/api/admin/ai-tuning', { method: 'POST', body: {} })).status, 400);
+  assert.equal((await f.call('owner', '/api/admin/ai-tuning', { method: 'POST', body: { userId: 'access:unbekannt' } })).status, 404);
+
+  // Add memory and chat message for alice
+  await f.db.prepare("INSERT INTO ai_memories (id, session_id, content, category) VALUES (?, ?, ?, 'memory')").bind('mem-alice-garden', 'access:alice', 'Hat einen großen Balkon mit Tomaten und Basilikum').run();
+  await f.db.prepare("INSERT INTO chat_messages (session_id, conversation_id, role, content) VALUES (?, ?, ?, ?)").bind('access:alice', 'c-alice', 'user', 'Wann muss ich Tomaten ausgeizen?').run();
+
+  const prevCalls = f.modelCalls.length;
+  const res = await f.call('owner', '/api/admin/ai-tuning', { method: 'POST', body: { userId: 'access:alice' } });
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.equal(data.ok, true);
+  assert.equal(data.userId, 'access:alice');
+  assert.equal(data.isAiGenerated, true);
+  assert.equal(typeof data.tuningSuggestion, 'string');
+  assert.ok(f.modelCalls.length > prevCalls, 'KI-Modell wurde für die Abstimmung aufgerufen');
+
+  // Verify it is persisted in ai_memories under 'ai_tuning'
+  const savedTuning = await f.db.prepare("SELECT content FROM ai_memories WHERE session_id = 'access:alice' AND category = 'ai_tuning'").first();
+  assert.ok(savedTuning);
+  assert.equal(savedTuning.content, data.tuningSuggestion);
+
+  // Verify that GET /api/admin/stats now reflects this AI-generated tuning
+  const statsRes = await f.call('owner', '/api/admin/stats');
+  const statsData = await statsRes.json();
+  const aliceStats = statsData.usersAnalytics.find(u => u.userId === 'access:alice');
+  assert.ok(aliceStats);
+  assert.equal(aliceStats.isAiGenerated, true);
+  assert.equal(aliceStats.tuningSuggestion, data.tuningSuggestion);
+});
