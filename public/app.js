@@ -1,15 +1,19 @@
 const $ = id => document.getElementById(id);
-const names = {overview:'Übersicht',chat:'KI-Chat',projects:'Projekte & Aufgaben',agents:'Agenten & Tools',memory:'Langzeitgedächtnis',files:'Dateien',automations:'Automatisierungen',usage:'Nutzung & Kosten',settings:'Einstellungen',users:'Benutzerverwaltung',profile:'Persönliches Profil & Privatsphäre',admin:'Betreiberverwaltung'};
-const icons = {overview:'home',chat:'chat',projects:'projects',memory:'memory',settings:'settings'};
+let isAdmin = false, connected = false, busy = false, accessVerified = false;
+const names = {overview:'Übersicht',chat:'KI-Chat',learn:'Lernen & Wissen',help:'Hilfe & Installation',projects:'Projekte & Aufgaben',agents:'Agenten & Tools',memory:'Langzeitgedächtnis',files:'Dateien',automations:'Automatisierungen',usage:'Nutzung & Kosten',settings:'Einstellungen',users:'Benutzerverwaltung',profile:'Persönliches Profil & Privatsphäre',admin:'Betreiberverwaltung'};
+const icons = {overview:'home',chat:'chat',learn:'spark',help:'phone',projects:'projects',memory:'memory',settings:'settings'};
 function makeNav(id, short = false) {
-  const labels = {overview:'Home',chat:'Chat',memory:'Gedächtnis',projects:'Projekte',settings:'Einstellungen'};
-  $(id).innerHTML = ['overview','chat','memory','projects','settings'].map(k => `<button data-view="${k}" aria-label="${names[k]}"><svg class="nav-icon" aria-hidden="true"><use href="#i-${icons[k]}"></use></svg><span class="nav-label">${labels[k]}</span></button>`).join('');
+  const keys = short 
+    ? ['overview','chat','memory','projects','settings']
+    : (isAdmin ? ['overview','chat','learn','memory','projects','help','settings'] : ['overview','chat','memory','projects','help','settings']);
+  const labels = {overview:'Home',chat:'Chat',learn:'Lernen',memory:'Gedächtnis',projects:'Projekte',help:'Hilfe',settings:'Einstellungen'};
+  $(id).innerHTML = keys.map(k => `<button data-view="${k}" aria-label="${names[k]}"><svg class="nav-icon" aria-hidden="true"><use href="#i-${icons[k]}"></use></svg><span class="nav-label">${labels[k]}</span></button>`).join('');
 }
 makeNav('nav'); makeNav('mobile', true);
 
 function go(k) {
   if (!names[k]) return;
-  if (k === 'admin' && (!connected || !isAdmin)) return;
+  if ((k === 'admin' || k === 'learn') && (!connected || !isAdmin)) return;
   document.body.dataset.view = k;
   document.querySelectorAll('.view').forEach(x => x.classList.toggle('active', x.id === k));
   document.querySelectorAll('button[data-view]').forEach(x => { x.classList.toggle('active', x.dataset.view === k); if (x.dataset.view === k) x.setAttribute('aria-current','page'); else x.removeAttribute('aria-current'); });
@@ -28,8 +32,7 @@ let selectedProjectFilter = null;
 let customAgents = [];
 let activeAgentId = "core";
 const legacy = get('memories');
-let token = localStorage.getItem('pai_token') || '', connected = false, busy = false, accessVerified = false;
-let isAdmin = false, termsVersion = '', currentUserId = '';
+let token = localStorage.getItem('pai_token') || '', termsVersion = '', currentUserId = '';
 let adminSelectedUser = null, adminSelectionEpoch = 0;
 let authEpoch = 0;
 let conversations = [];
@@ -552,6 +555,7 @@ async function health() {
       showTerms(); return;
     }
     isAdmin = Boolean(status.isAdmin);
+    makeNav('nav'); makeNav('mobile', true);
     if ($('adminNav')) $('adminNav').hidden = !isAdmin;
     if ($('adminMasterWrap')) $('adminMasterWrap').hidden = !isAdmin;
     if ($('profileConsent')) $('profileConsent').checked = Boolean(status.profileConsent);
@@ -1947,3 +1951,116 @@ initAgentPicker();
 initAgentDialog();
 renderAgentDropdown();
 renderAgentsGrid();
+
+
+// Hilfe-Reiter: Gerätewechsel iPhone / Android
+if ($('tabIphone') && $('tabAndroid')) {
+  $('tabIphone').onclick = () => {
+    $('tabIphone').classList.add('active');
+    $('tabAndroid').classList.remove('active');
+    $('guideIphone').hidden = false;
+    $('guideAndroid').hidden = true;
+  };
+  $('tabAndroid').onclick = () => {
+    $('tabAndroid').classList.add('active');
+    $('tabIphone').classList.remove('active');
+    $('guideAndroid').hidden = false;
+    $('guideIphone').hidden = true;
+  };
+}
+
+if ($('helpDirectInstallBtn')) {
+  $('helpDirectInstallBtn').onclick = () => {
+    if (window.__deferredPrompt) {
+      window.__deferredPrompt.prompt();
+    } else {
+      alert('Tippe oben rechts im Menü deines Browsers auf die 3 Punkte und wähle "App installieren" oder "Zum Startbildschirm hinzufügen".');
+    }
+  };
+}
+
+// Lernen-Reiter: Wissenseinspeisung in D1
+if ($('learnForm')) {
+  $('learnForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const category = ($('learnCategory')?.value || 'Allgemein').trim();
+    const topic = ($('learnTopic')?.value || '').trim();
+    const content = ($('learnContent')?.value || '').trim();
+    if (!content) return;
+    const fullContent = topic ? `[${topic}] ${content}` : content;
+    try {
+      $('saveLearnBtn').disabled = true;
+      if ($('learnStatus')) $('learnStatus').textContent = 'Speichere Wissen in Cloudflare D1 …';
+      await api('/api/memories', {
+        method: 'POST',
+        body: JSON.stringify({ content: fullContent, category: 'memory' })
+      });
+      if ($('learnStatus')) $('learnStatus').textContent = '✓ Wissen erfolgreich in D1 verankert!';
+      if ($('learnContent')) $('learnContent').value = '';
+      if ($('learnTopic')) $('learnTopic').value = '';
+      await loadMemories();
+      renderLearnList();
+      setTimeout(() => { if ($('learnStatus')) $('learnStatus').textContent = ''; }, 3000);
+    } catch (err) {
+      if ($('learnStatus')) $('learnStatus').textContent = 'Fehler beim Speichern: ' + err.message;
+    } finally {
+      if ($('saveLearnBtn')) $('saveLearnBtn').disabled = false;
+    }
+  };
+}
+
+function renderLearnList() {
+  const container = $('learnList');
+  const countBadge = $('learnCount');
+  if (!container) return;
+  if (!memories.length) {
+    container.innerHTML = '<p class="muted" style="padding:16px;">Noch kein individuelles Wissen eingespeist.</p>';
+    if (countBadge) countBadge.textContent = '0 Einträge';
+    return;
+  }
+  if (countBadge) countBadge.textContent = `${memories.length} Einträge`;
+  container.innerHTML = memories.map(m => `
+    <div class="panel learn-item-panel">
+      <div class="learn-item-text">${esc(m.content)}</div>
+      <button class="secondary compact" data-del-learn="${esc(m.id)}">Löschen</button>
+    </div>
+  `).join('');
+  container.querySelectorAll('[data-del-learn]').forEach(btn => {
+    btn.onclick = async () => {
+      try {
+        await api('/api/memories', { method: 'DELETE', body: JSON.stringify({ id: btn.dataset.delLearn }) });
+        await loadMemories();
+        renderLearnList();
+      } catch (err) { alert('Fehler: ' + err.message); }
+    };
+  });
+}
+
+// 7 Family Slots in Master Cockpit
+const FAMILY_SLOTS = [
+  { id: 'philipp', slotName: '1. Philipp (Master)', role: 'Betreiber & Boss', avatar: '👑', status: 'Aktiv (Master-Admin)', note: 'Vollzugriff, Dev-Titan, Boss-Modus, D1-Speicher' },
+  { id: 'freundin', slotName: '2. Freundin', role: 'Partnerin & VIP', avatar: '🌸', status: 'Bereit zur Personalisierung', note: 'Persönliche Assistentin, Lifestyle, Termine, empathischer Ton' },
+  { id: 'mutter_freundin', slotName: '3. Mutter der Freundin', role: 'Familie', avatar: '🌿', status: 'Bereit zur Personalisierung', note: 'Geduldig, alltagstauglich, verständlich, Rezepte & Garten' },
+  { id: 'onkel_freundin', slotName: '4. Onkel der Freundin', role: 'Technik & Handwerk', avatar: '🛠️', status: 'Bereit zur Personalisierung', note: 'Pragmatisch, Heimwerker, Autos, Technik & Finanzen' },
+  { id: 'mutter', slotName: '5. Meine Mutter', role: 'Familie & Alltag', avatar: '❤️', status: 'Bereit zur Personalisierung', note: 'Herzlich, fürsorglich, Alltagshilfe, Briefe & Gesundheit' },
+  { id: 'vater', slotName: '6. Mein Vater', role: 'Familie & Macher', avatar: '🏎️', status: 'Bereit zur Personalisierung', note: 'Bodenständig, sachlich, Technik, Verträge & Auto' },
+  { id: 'slot_7', slotName: '7. Freier Slot (Partner / Gast)', role: 'Frei konfigurierbar', avatar: '⭐', status: 'Offen', note: 'Flexibler Slot für Geschäftspartner, Freund oder Familie' }
+];
+
+function renderFamilySlots() {
+  const grid = $('familySlotsGrid');
+  if (!grid) return;
+  grid.innerHTML = FAMILY_SLOTS.map(slot => `
+    <div class="family-slot-card glass">
+      <div class="slot-top">
+        <span class="slot-avatar">${slot.avatar}</span>
+        <div class="slot-meta">
+          <strong>${esc(slot.slotName)}</strong>
+          <small>${esc(slot.role)}</small>
+        </div>
+        <span class="slot-badge ${slot.id === 'philipp' ? 'active' : 'pending'}">${esc(slot.status)}</span>
+      </div>
+      <p class="slot-note">${esc(slot.note)}</p>
+    </div>
+  `).join('');
+}
