@@ -183,7 +183,7 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
     const origin = request.headers.get('Origin');
     if ((origin && origin !== url.origin) || request.headers.get('Sec-Fetch-Site') === 'cross-site') return json({ error: 'Zugriff von fremder Website abgelehnt' }, 403);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { Allow: 'GET, POST, PATCH, DELETE, OPTIONS' } });
-    if (url.pathname === '/api/health' && request.method === 'GET') return json({ status: 'online', name: 'Personal AI', version: '0.4.0', d1Configured: Boolean(env.DB), authConfigured: authMode(env) !== 'unconfigured', authMode: authMode(env) });
+    if (url.pathname === '/api/health' && request.method === 'GET') return json({ status: 'online', name: 'Philipps AI', version: '0.4.0', d1Configured: Boolean(env.DB), authConfigured: authMode(env) !== 'unconfigured', authMode: authMode(env) });
     if (url.pathname === '/api/auth/session' && request.method === 'GET') {
       if (authMode(env) === 'access') return json({ mode: 'access' });
       if (typeof env.APP_TOKEN === 'string' && env.APP_TOKEN.length >= 32) return json({ token: env.APP_TOKEN, mode: 'token' });
@@ -306,7 +306,7 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
         try {
           // Workers supports manual/follow, but rejects redirect:'error'. Never
           // follow upstream redirects with the model provider's bearer secret.
-          const response = await upstream(endpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeout), headers: { Authorization: `Bearer ${env.VLLM_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': url.origin, 'X-Title': 'Personal AI' }, body: JSON.stringify({ model: env.VLLM_MODEL || 'qwen/qwen-2.5-72b-instruct', messages, max_tokens: 1500, temperature: 0.7 }) });
+          const response = await upstream(endpoint, { method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(timeout), headers: { Authorization: `Bearer ${env.VLLM_API_KEY}`, 'Content-Type': 'application/json', 'HTTP-Referer': url.origin, 'X-Title': 'Philipps AI' }, body: JSON.stringify({ model: env.VLLM_MODEL || 'qwen/qwen-2.5-72b-instruct', messages, max_tokens: 1500, temperature: 0.7 }) });
           if (!response.ok) {
             await response.body?.cancel();
             return json({ error: response.status === 401 || response.status === 403 ? 'KI-Server lehnt die Server-Anmeldung ab.' : response.status === 402 ? 'KI-Guthaben aufgebraucht. Bitte Anbieter-Konto prüfen.' : response.status === 429 ? 'KI-Server ist ausgelastet. Später erneut versuchen.' : 'KI-Server ist derzeit nicht verfügbar.', code: 'MODEL_UNAVAILABLE' }, 502);

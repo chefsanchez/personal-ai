@@ -48,7 +48,7 @@ function controls() {
 }
 
 function updateProfileDisplay(status) {
-  if ($('sideUserName')) $('sideUserName').textContent = status?.email || (status?.isAdmin ? 'Philipp (Betreiber)' : 'Personal AI');
+  if ($('sideUserName')) $('sideUserName').textContent = status?.email || (status?.isAdmin ? 'Philipp (Betreiber)' : 'Philipps AI');
   if ($('sideUserRole')) $('sideUserRole').textContent = status?.isAdmin ? '👑 Master Admin' : (status?.email ? 'Angemeldeter Nutzer' : 'Dein persönlicher Raum');
   if ($('sideAvatar')) $('sideAvatar').textContent = status?.isAdmin ? '👑' : (status?.email ? status.email.charAt(0).toUpperCase() : 'P');
 }
@@ -657,10 +657,10 @@ function download(name, value) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value,null,2)], {type:'application/json'}));
   const anchor = document.createElement('a'); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url);
 }
-$('exportMemory').onclick = () => download('personal-ai-erinnerungen.json', memories);
+$('exportMemory').onclick = () => download('philipps-ai-erinnerungen.json', memories);
 $('legacyMemory').textContent = legacy.length ? `${legacy.length} alte Erinnerung(en) liegen nur in diesem Browser. Sie bleiben erhalten und werden nicht automatisch hochgeladen. Exportieren und gewünschte Fakten einzeln in D1 übernehmen.` : '';
 $('exportLegacy').hidden = !legacy.length;
-$('exportLegacy').onclick = () => download('personal-ai-alte-browser-erinnerungen.json', legacy);
+$('exportLegacy').onclick = () => download('philipps-ai-alte-browser-erinnerungen.json', legacy);
 
 function startNewChat() {
   conversation = crypto.randomUUID();
@@ -801,7 +801,7 @@ window.addEventListener('keydown', event => {
 
 if ($('entryCancel')) $('entryCancel').onclick = () => $('entryDialog').close('cancel');
 if ($('entryForm')) $('entryForm').onsubmit = event => { event.preventDefault(); $('entryDialog').close('save'); };
-if ($('exportChat')) $('exportChat').onclick = () => download('personal-ai-chat.json', {conversation_id:conversation,messages:history});
+if ($('exportChat')) $('exportChat').onclick = () => download('philipps-ai-chat.json', {conversation_id:conversation,messages:history});
 
 // --- Gerätedetektion & Gamified PWA Install Quest ---
 function detectDevice() {
