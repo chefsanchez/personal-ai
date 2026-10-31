@@ -836,7 +836,7 @@ autoDetectTheme();
 window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'l') {
     event.preventDefault();
-    const themes = ['default', 'stealth-carbon', 'm-power', 'syndicate-emerald', 'cyberpunk-amber', 'bmw-520i', 'ultra-workstation'];
+    const themes = ['default', 'stealth-carbon', 'm-power', 'syndicate-emerald', 'cyberpunk-amber', 'bmw-520i', 'ultra-workstation', 'rich-gold'];
     const current = document.documentElement.dataset.theme || 'default';
     const next = themes[(themes.indexOf(current) + 1) % themes.length];
     applyTheme(next, true);
