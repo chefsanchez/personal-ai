@@ -1122,6 +1122,8 @@ async function loadAdmin() {
     container.querySelectorAll('[data-admin-user]').forEach(btn => {
       btn.onclick = () => selectAdminUser(data.users.find(u => u.id === btn.dataset.adminUser));
     });
+    renderFamilySlots();
+    await loadAdminStats();
   } catch (error) {
     $('adminStatus').textContent = error.message;
   }
@@ -2063,4 +2065,70 @@ function renderFamilySlots() {
       <p class="slot-note">${esc(slot.note)}</p>
     </div>
   `).join('');
+}
+
+async function loadAdminStats() {
+  if (!connected || !isAdmin) return;
+  try {
+    const data = await api('/api/admin/stats');
+    if ($('metricTotalMemories')) $('metricTotalMemories').textContent = data.stats.totalMemories;
+    if ($('metricTotalMessages')) $('metricTotalMessages').textContent = data.stats.totalMessages;
+    if ($('metricActiveUsers')) $('metricActiveUsers').textContent = data.stats.activeUsers;
+    
+    // Render per-user learning analytics & tuning tips
+    const analyticsBox = $('learningAnalyticsList');
+    if (analyticsBox) {
+      if (!data.usersAnalytics?.length) {
+        analyticsBox.innerHTML = '<p class="muted" style="padding:16px;">Noch keine Nutzer-Lernstatistiken aufgezeichnet.</p>';
+        analyticsBox.classList.add('empty');
+      } else {
+        analyticsBox.classList.remove('empty');
+        analyticsBox.innerHTML = data.usersAnalytics.map(u => `
+          <div class="analytics-user-card">
+            <div class="analytics-top">
+              <div>
+                <span class="analytics-name">${esc(u.userName)}</span>
+                <small class="muted" style="display:block;font-size:9px;">${esc(u.email || u.userId)}</small>
+              </div>
+              <div class="analytics-badge-row">
+                <span class="count-tag">💬 ${u.messageCount} Nachrichten</span>
+                <span class="count-tag">🧠 ${u.memoryCount} Fakten gelernt</span>
+                ${u.topics.map(t => `<span class="topic-tag">${esc(t)}</span>`).join('')}
+              </div>
+            </div>
+            <div class="tuning-tip-box">
+              <span class="tuning-tip-icon">💡</span>
+              <div class="tuning-tip-text">
+                <strong>Abstimmungs-Empfehlung für Philipp:</strong>
+                <p>${esc(u.tuningSuggestion)}</p>
+              </div>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    // Render recent learnings feed
+    const recentBox = $('recentLearningsList');
+    if (recentBox) {
+      if (!data.recentMemories?.length) {
+        recentBox.innerHTML = '<p class="muted" style="padding:16px;">Noch keine Fakten gelernt.</p>';
+        recentBox.classList.add('empty');
+      } else {
+        recentBox.classList.remove('empty');
+        recentBox.innerHTML = data.recentMemories.map(m => `
+          <div class="recent-learning-item">
+            <span class="recent-user-pill">${esc(m.user_label)}</span>
+            <div class="recent-learning-content">${esc(m.content)}</div>
+          </div>
+        `).join('');
+      }
+    }
+  } catch (err) {
+    console.warn('Failed to load admin stats:', err);
+  }
+}
+
+if ($('reloadAdminStats')) {
+  $('reloadAdminStats').onclick = () => loadAdminStats();
 }

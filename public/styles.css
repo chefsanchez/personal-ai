@@ -1546,3 +1546,34 @@ body {
 .slot-badge.active{background:rgba(0,230,118,.15);border:1px solid rgba(0,230,118,.35);color:#00e676}
 .slot-badge.pending{background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);color:#f59e0b}
 .slot-note{margin:0;font-size:11px;color:#94a3b8;line-height:1.5}
+
+/* Master Cockpit Live Learning Analytics Styles */
+.admin-stats-overview{border-radius:24px;padding:22px;margin-bottom:20px}
+.admin-stats-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.stats-title-group{display:flex;align-items:center;gap:12px}
+.stats-orb{font-size:24px;line-height:1}
+.stats-title-group h3{margin:0;font-size:15px;color:#fff}
+.stats-title-group p{margin:2px 0 0;font-size:11px;color:#94a3b8}
+.admin-metric-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+@media(max-width:800px){.admin-metric-cards{grid-template-columns:1fr 1fr}}
+.metric-card{border-radius:18px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);padding:14px 16px;text-align:left}
+.metric-label{display:block;font-size:10px;color:#8fa0ba;margin-bottom:6px;font-weight:500}
+.metric-val{display:block;font-size:22px;color:#f8fafc;letter-spacing:-.03em;font-weight:600}
+.metric-card small{font-size:9px;color:#64748b}
+
+.learning-analytics-list{display:flex;flex-direction:column;gap:12px}
+.analytics-user-card{border-radius:18px;padding:16px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08)}
+.analytics-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+.analytics-name{font-size:13px;font-weight:600;color:#fff}
+.analytics-badge-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.topic-tag{font-size:9px;font-weight:600;padding:2px 7px;border-radius:6px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8}
+.count-tag{font-size:9px;font-weight:600;padding:2px 7px;border-radius:6px;background:rgba(255,255,255,.06);color:#cbd5e1}
+.tuning-tip-box{margin-top:10px;padding:10px 14px;border-radius:12px;background:linear-gradient(135deg,rgba(255,215,0,.08),rgba(245,158,11,.03));border:1px solid rgba(255,215,0,.25);display:flex;align-items:flex-start;gap:8px}
+.tuning-tip-icon{font-size:15px;line-height:1.2;flex-shrink:0}
+.tuning-tip-text strong{display:block;font-size:11px;color:#ffd700;margin-bottom:2px}
+.tuning-tip-text p{margin:0;font-size:11px;color:#e2e8f0;line-height:1.4}
+
+.recent-learnings-list{display:flex;flex-direction:column;gap:8px}
+.recent-learning-item{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06)}
+.recent-user-pill{font-size:9px;font-weight:700;padding:2px 6px;border-radius:6px;background:rgba(0,230,118,.12);border:1px solid rgba(0,230,118,.3);color:#00e676;flex-shrink:0;margin-top:2px}
+.recent-learning-content{font-size:12px;color:#cbd5e1;line-height:1.5}

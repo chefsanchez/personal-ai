@@ -203,6 +203,73 @@ async function readProfile(db, account) {
 
 async function adminRoute(request, url, env, identity, admin) {
   if (!admin) return json({ error: 'Nur der Betreiber darf diesen Bereich öffnen', code: 'FORBIDDEN' }, 403);
+  if (url.pathname === '/api/admin/stats' && request.method === 'GET') {
+    const [counts, userMemories, recentMemories] = await Promise.all([
+      env.DB.prepare("SELECT (SELECT COUNT(*) FROM ai_memories WHERE category = 'memory') AS total_memories, (SELECT COUNT(DISTINCT conversation_id) FROM chat_messages) AS total_conversations, (SELECT COUNT(*) FROM chat_messages) AS total_messages, (SELECT COUNT(*) FROM app_accounts WHERE status = 'active') AS active_users").first(),
+      env.DB.prepare("SELECT a.id AS user_id, COALESCE(NULLIF(a.display_name, ''), NULLIF(a.email, ''), a.id) AS user_name, a.email, a.last_seen_at, (SELECT COUNT(*) FROM chat_messages WHERE session_id = a.id) AS message_count, (SELECT COUNT(*) FROM ai_memories WHERE session_id = a.id AND category = 'memory') AS memory_count, GROUP_CONCAT(m.content, ' ||| ') AS sample_memories FROM app_accounts a LEFT JOIN ai_memories m ON m.session_id = a.id AND m.category = 'memory' GROUP BY a.id ORDER BY a.last_seen_at DESC LIMIT 50").all(),
+      env.DB.prepare("SELECT m.id, m.session_id, m.content, m.created_at, COALESCE(NULLIF(a.display_name, ''), NULLIF(a.email, ''), m.session_id) AS user_label FROM ai_memories m LEFT JOIN app_accounts a ON a.id = m.session_id WHERE m.category = 'memory' ORDER BY m.created_at DESC LIMIT 20").all()
+    ]);
+
+    const usersAnalytics = (userMemories.results || []).map(u => {
+      const sample = (u.sample_memories || '').toLowerCase();
+      const topics = [];
+      const suggestions = [];
+      if (/rezept|kochen|backen|essen|gericht|zutaten|küche/.test(sample)) {
+        topics.push('Kochen & Rezepte');
+        suggestions.push('Kochen & Rezepte: Schritt-für-Schritt Zubereitung und Timer-Tipps anbieten.');
+      }
+      if (/garten|pflanz|blumen|beet|balkon|gemüse/.test(sample)) {
+        topics.push('Garten & Pflanzen');
+        suggestions.push('Garten-Fokus: Saisonale Pflege- und Schnittkalender vorschlagen.');
+      }
+      if (/auto|bmw|motor|öl|reifen|werkstatt|inspektion|reparatur/.test(sample)) {
+        topics.push('Kfz & Technik');
+        suggestions.push('Kfz & Technik: Klare Wartungsintervalle und konkrete Reparatur-Tipps einbinden.');
+      }
+      if (/termin|kalender|orga|to-do|aufgabe|liste|plan/.test(sample)) {
+        topics.push('Organisation & To-Dos');
+        suggestions.push('Organisation: Strukturierte Tageslisten und Prioritäten-Pills aktivieren.');
+      }
+      if (/reise|urlaub|flug|hotel|strand/.test(sample)) {
+        topics.push('Reisen & Freizeit');
+        suggestions.push('Reiseplanung: Packlisten und regionale Empfehlungen bereitstellen.');
+      }
+      if (/handwerk|bau|werkzeug|holz|renovier/.test(sample)) {
+        topics.push('Handwerk & DIY');
+        suggestions.push('Handwerk & DIY: Materiallisten und Sicherheitsrichtlinien mitgeben.');
+      }
+      if (/gesundheit|fitness|sport|schlaf|medizin|arzt/.test(sample)) {
+        topics.push('Gesundheit & Vitalität');
+        suggestions.push('Gesundheit & Vitalität: Sanfte Routinen und alltagstaugliche Bewegungstipps.');
+      }
+      const suggestion = suggestions.length > 0
+        ? suggestions.join(' ')
+        : (!sample || u.memory_count === 0
+            ? 'Noch keine Erinnerungen vorhanden. Tipp: Starter-Fragen und einfache Alltagsbeispiele vorschlagen.'
+            : 'Alltägliche Unterstützung aktiv. Keine speziellen Anpassungen nötig.');
+      return {
+        userId: u.user_id,
+        userName: u.user_name,
+        email: u.email,
+        lastSeenAt: u.last_seen_at,
+        messageCount: u.message_count || 0,
+        memoryCount: u.memory_count || 0,
+        topics: topics.length ? topics : ['Allgemein'],
+        tuningSuggestion: suggestion
+      };
+    });
+
+    return json({
+      stats: {
+        totalMemories: counts?.total_memories || 0,
+        totalConversations: counts?.total_conversations || 0,
+        totalMessages: counts?.total_messages || 0,
+        activeUsers: counts?.active_users || 0
+      },
+      usersAnalytics,
+      recentMemories: recentMemories.results || []
+    });
+  }
   if (url.pathname === '/api/admin/users' && request.method === 'GET') {
     const result = await env.DB.prepare(`SELECT account.id, account.email, account.display_name, account.status,
       account.profile_consent, account.created_at, account.last_seen_at,

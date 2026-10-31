@@ -131,3 +131,29 @@ test('Profil-Einwilligung ist freiwillig; Widerruf löscht nur eigene Ableitunge
   assert.equal((await (await f.call('alice','/api/conversations')).json()).conversations.length,1);
   assert.equal(f.modelCalls.length,2,'Einwilligung und Widerruf starten keine Modellanfragen');
 });
+
+
+test('Admin Live-Lernstatistik aggregiert Daten und empfiehlt Abstimmungen; Unbefugte erhalten 403', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.call('alice', '/api/admin/stats')).status, 403);
+
+  await f.db.prepare("INSERT INTO ai_memories (id, session_id, content, category) VALUES (?, ?, ?, 'memory')").bind('mem-alice', 'access:alice', 'Liebt italienische Rezepte, Pasta und frische Pizza backen').run();
+  await f.db.prepare("INSERT INTO ai_memories (id, session_id, content, category) VALUES (?, ?, ?, 'memory')").bind('mem-bob', 'access:bob', 'Fährt einen BMW 520i und prüft regelmäßig Motor und Öl').run();
+
+  const res = await f.call('owner', '/api/admin/stats');
+  assert.equal(res.status, 200);
+  const data = await res.json();
+  assert.ok(data.stats.totalMemories >= 2);
+  assert.ok(Array.isArray(data.usersAnalytics));
+  assert.ok(Array.isArray(data.recentMemories));
+
+  const aliceStats = data.usersAnalytics.find(u => u.userId === 'access:alice');
+  assert.ok(aliceStats);
+  assert.ok(aliceStats.topics.includes('Kochen & Rezepte'));
+  assert.match(aliceStats.tuningSuggestion, /Kochen|Rezept/);
+
+  const bobStats = data.usersAnalytics.find(u => u.userId === 'access:bob');
+  assert.ok(bobStats);
+  assert.ok(bobStats.topics.includes('Kfz & Technik'));
+  assert.match(bobStats.tuningSuggestion, /Kfz|Wartung|Reparatur/);
+});
