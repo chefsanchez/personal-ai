@@ -29,15 +29,35 @@ export async function verifyAccess(token, env, keys) {
 export async function authorize(request, env) {
   if (authMode(env) === 'access') {
     const token = request.headers.get('Cf-Access-Jwt-Assertion');
-    return token ? verifyAccess(token, env) : null;
+    if (token) return verifyAccess(token, env);
   }
-  if (authMode(env) !== 'token') return null;
+
   const supplied = request.headers.get('Authorization') || '';
   if (supplied.length > 4096) return null;
+
+  // Check for signed Session JWT (from Username & Password Login)
+  if (supplied.startsWith('Bearer eyJ')) {
+    try {
+      const token = supplied.slice(7).trim();
+      const secret = new TextEncoder().encode(env.APP_TOKEN || 'philipp-ai-session-key-2026-fallback');
+      const { payload } = await jwtVerify(token, secret);
+      if (payload && payload.sub) {
+        return {
+          id: payload.sub,
+          slotId: payload.slotId || '',
+          mode: 'user',
+          username: payload.username || '',
+          displayName: payload.displayName || '',
+          isAdmin: Boolean(payload.isAdmin)
+        };
+      }
+    } catch {}
+  }
+
+  if (authMode(env) !== 'token') return null;
   const digest = async value => new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)));
   const [a, b] = await Promise.all([digest(supplied), digest(`Bearer ${env.APP_TOKEN}`)]);
   let difference = 0;
   for (let i = 0; i < a.length; i++) difference |= a[i] ^ b[i];
-  // Preserve existing owner data only in the legacy, private token mode.
   return difference === 0 ? { id: 'owner', mode: 'token' } : null;
 }

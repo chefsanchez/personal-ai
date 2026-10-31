@@ -560,11 +560,14 @@ async function health() {
     if ($('adminMasterWrap')) $('adminMasterWrap').hidden = !isAdmin;
     if ($('profileConsent')) $('profileConsent').checked = Boolean(status.profileConsent);
     $('manualConnection').hidden = true;
+    if ($('userLoginBox')) $('userLoginBox').hidden = true;
     connected = true;
     sessionStorage.removeItem('pai_logged_out');
     autoDetectTheme(status);
     updateProfileDisplay(status);
-    $('connectionStatus').textContent = accessVerified ? 'Cloudflare Access geprüft. Automatische Verbindung aktiv.' : 'Automatisch verbunden. Dein persönlicher Raum ist bereit.';
+    $('connectionStatus').textContent = isAdmin
+      ? '👑 Angemeldet als Betreiber (Philipp). Vollzugriff aktiv.'
+      : (status.displayName ? `👋 Angemeldet als ${status.displayName}.` : 'Verbunden. Dein persönlicher Raum ist bereit.');
     $('health').textContent = `${h.name} · Version ${h.version} · D1 erreichbar · OpenRouter (Qwen 2.5 72B) Online`;
     $('modelStatus').textContent = status.modelConfigured ? 'KI Online' : 'KI nicht konfiguriert';
     $('gpuStatus').textContent = status.modelConfigured ? 'Online (Qwen 2.5 72B)' : 'Nicht konfiguriert';
@@ -2038,15 +2041,15 @@ function renderLearnList() {
   });
 }
 
-// 7 Fully Configured Family Slots with Deep Personalization
+// 7 Fully Configured Family Slots with Deep Personalization & Login Credentials
 let FAMILY_SLOTS = [
-  { id: 'philipp', slotName: '1. Philipp (Master)', firstName: 'Philipp', greeting: 'Du, Boss, direkt & ungeschönt', email: 'philipp@philipp-ai.local', role: 'Betreiber & Boss', avatar: '👑', status: 'Aktiv (Master-Admin)', note: 'Vollzugriff, Dev-Titan Coding-Agent, Boss-Modus, D1-Speicher & Lernen-Reiter' },
-  { id: 'freundin', slotName: '2. Freundin', firstName: 'Laura', greeting: 'Du, herzlich, liebevoll & empathisch', email: 'laura@philipp-ai.local', role: 'Partnerin & VIP', avatar: '🌸', status: 'Bereit & personalisiert', note: 'Persönliche Assistentin, Lifestyle, Ernährung, gemeinsame Pläne & empathischer Ton' },
-  { id: 'mutter_freundin', slotName: '3. Mutter der Freundin', firstName: 'Renate', greeting: 'Du, respektvoll, geduldig & alltagstauglich', email: 'renate@philipp-ai.local', role: 'Familie & Haushalt', avatar: '🌿', status: 'Bereit & personalisiert', note: 'Geduldig, einfache Schritt-für-Schritt Erklärungen, Rezepte, Gartenpflege, kein Fachchinesisch' },
-  { id: 'onkel_freundin', slotName: '4. Onkel der Freundin', firstName: 'Klaus', greeting: 'Du, direkt, sachlich & Macher-Ton', email: 'klaus@philipp-ai.local', role: 'Technik & Handwerk', avatar: '🛠️', status: 'Bereit & personalisiert', note: 'Praktiker, Heimwerker, Autos, Reparaturen, Werkzeug, Finanzen & solide Baupraxis' },
-  { id: 'mutter', slotName: '5. Meine Mutter', firstName: 'Monika', greeting: 'Du, herzlich & fürsorglich', email: 'monika@philipp-ai.local', role: 'Familie & Alltag', avatar: '❤️', status: 'Bereit & personalisiert', note: 'Herzliche Fürsorge, Gesundheit, Alltagshilfe, Formulierungshilfe bei Briefen & Dokumenten' },
-  { id: 'vater', slotName: '6. Mein Vater', firstName: 'Wolfgang', greeting: 'Du, bodenständig & sachlich', email: 'wolfgang@philipp-ai.local', role: 'Familie & Macher', avatar: '🏎️', status: 'Bereit & personalisiert', note: 'Bodenständig, sachlich, Technik, Kfz-Wartung (BMW), Verträge & praxiserprobte Lösungen' },
-  { id: 'slot_7', slotName: '7. Freier Slot (Partner / Gast)', firstName: 'Erik', greeting: 'Du, kollegial & professionell', email: 'erik@philipp-ai.local', role: 'Partner & VIP-Gast', avatar: '⭐', status: 'Bereit & personalisiert', note: 'Geschäftspartner / Co-Founder, Business Development, Deals, Skalierung & Tech' }
+  { id: 'philipp', slotName: '1. Philipp (Master)', firstName: 'Philipp', username: 'philipp', password: 'philipp2026', greeting: 'Du, Boss, direkt & ungeschönt', email: 'philipp@philipp-ai.local', role: 'Betreiber & Boss', avatar: '👑', status: 'Aktiv (Master-Admin)', note: 'Vollzugriff, Dev-Titan Coding-Agent, Boss-Modus, D1-Speicher & Lernen-Reiter' },
+  { id: 'freundin', slotName: '2. Freundin', firstName: 'Sophia', username: 'sophia', password: 'sophia2026', greeting: 'Hallo Sophia', email: 'sophia@philipp-ai.local', role: 'Partnerin & VIP', avatar: '🌸', status: 'Bereit & personalisiert', note: 'Philipps Freundin, wohnt in Grevesmühlen, Tochter von Verena, Schwester von Fabi.' },
+  { id: 'mutter_freundin', slotName: '3. Mutter der Freundin', firstName: 'Verena', username: 'verena', password: 'verena2026', greeting: 'Hallo Verena', email: 'verena@philipp-ai.local', role: 'Mutter von Sophia & Familie', avatar: '🌿', status: 'Bereit & personalisiert', note: 'Fährt einen schwarzen Mitsubishi Space Star, wohnt in Harkensee direkt neben ihren Eltern mit Sohn Fabi. Tochter Sophia wohnt in Grevesmühlen mit Freund Philipp (Entwickler). Sucht bald neue Jobs. Ton: Respektvoll, herzlich, bodenständig, kein Fachchinesisch.' },
+  { id: 'onkel_freundin', slotName: '4. Onkel der Freundin', firstName: 'Klaus', username: 'klaus', password: 'klaus2026', greeting: 'Du, direkt, sachlich & Macher-Ton', email: 'klaus@philipp-ai.local', role: 'Technik & Handwerk', avatar: '🛠️', status: 'Bereit', note: 'Praktiker, Heimwerker, Autos, Reparaturen, Werkzeug, Finanzen & solide Baupraxis' },
+  { id: 'mutter', slotName: '5. Meine Mutter', firstName: 'Monika', username: 'monika', password: 'monika2026', greeting: 'Du, herzlich & fürsorglich', email: 'monika@philipp-ai.local', role: 'Familie & Alltag', avatar: '❤️', status: 'Bereit', note: 'Herzliche Fürsorge, Gesundheit, Alltagshilfe, Formulierungshilfe bei Briefen & Dokumenten' },
+  { id: 'vater', slotName: '6. Mein Vater', firstName: 'Wolfgang', username: 'wolfgang', password: 'wolfgang2026', greeting: 'Du, bodenständig & sachlich', email: 'wolfgang@philipp-ai.local', role: 'Familie & Macher', avatar: '🏎️', status: 'Bereit', note: 'Bodenständig, sachlich, Technik, Kfz-Wartung (BMW), Verträge & praxiserprobte Lösungen' },
+  { id: 'slot_7', slotName: '7. Freier Slot (Partner / Gast)', firstName: 'Erik', username: 'erik', password: 'erik2026', greeting: 'Du, kollegial & professionell', email: 'erik@philipp-ai.local', role: 'Partner & VIP-Gast', avatar: '⭐', status: 'Bereit', note: 'Geschäftspartner / Co-Founder, Business Development, Deals, Skalierung & Tech' }
 ];
 
 try {
@@ -2068,11 +2071,14 @@ function renderFamilySlots() {
           <strong>${esc(slot.slotName)}</strong>
           <small>${esc(slot.firstName ? `${slot.firstName} (${slot.role})` : slot.role)}</small>
         </div>
-        <span class="slot-badge ${slot.id === 'philipp' ? 'active' : 'active'}">${esc(slot.status)}</span>
+        <span class="slot-badge active">${esc(slot.status)}</span>
       </div>
       <p class="slot-note">${esc(slot.note)}</p>
+      <div style="margin:8px 0;">
+        <span class="slot-credentials-tag">🔑 Login: <strong>${esc(slot.username || slot.id)}</strong> | 🔒 PW: <strong>${esc(slot.password || (slot.id + '2026'))}</strong></span>
+      </div>
       <div class="slot-card-actions">
-        <button type="button" class="secondary compact slot-edit-btn" data-edit-slot="${esc(slot.id)}">✏️ Personalisieren</button>
+        <button type="button" class="secondary compact slot-edit-btn" data-edit-slot="${esc(slot.id)}">✏️ Account anpassen</button>
         <small class="muted" style="margin-left:auto;font-size:9px;">${esc(slot.email || '')}</small>
       </div>
     </div>
@@ -2094,6 +2100,8 @@ function openEditSlotModal(slotId) {
   if ($('slotIdInput')) $('slotIdInput').value = slot.id;
   if ($('slotDialogAvatar')) $('slotDialogAvatar').textContent = slot.avatar || '👤';
   if ($('slotDialogTitle')) $('slotDialogTitle').textContent = `${slot.slotName} anpassen`;
+  if ($('slotUsernameInput')) $('slotUsernameInput').value = slot.username || slot.id;
+  if ($('slotPasswordInput')) $('slotPasswordInput').value = slot.password || (slot.id + '2026');
   if ($('slotFirstNameInput')) $('slotFirstNameInput').value = slot.firstName || '';
   if ($('slotGreetingInput')) $('slotGreetingInput').value = slot.greeting || 'Du';
   if ($('slotEmailInput')) $('slotEmailInput').value = slot.email || '';
@@ -2112,6 +2120,8 @@ if ($('slotForm')) {
     const slotId = $('slotIdInput')?.value;
     const slot = FAMILY_SLOTS.find(s => s.id === slotId);
     if (!slot) return;
+    slot.username = $('slotUsernameInput')?.value.trim().toLowerCase() || slot.username || slot.id;
+    slot.password = $('slotPasswordInput')?.value.trim() || slot.password || (slot.id + '2026');
     slot.firstName = $('slotFirstNameInput')?.value.trim() || slot.firstName;
     slot.greeting = $('slotGreetingInput')?.value.trim() || slot.greeting;
     slot.email = $('slotEmailInput')?.value.trim() || slot.email;
@@ -2123,12 +2133,17 @@ if ($('slotForm')) {
       localStorage.setItem('pai_family_slots', JSON.stringify(FAMILY_SLOTS));
     } catch {}
 
+    renderFamilySlots();
+    $('editFamilySlotDialog')?.close();
+
     if (connected && isAdmin) {
       try {
         await api('/api/admin/family-slots', {
           method: 'POST',
           body: JSON.stringify({
             slotId: slot.id,
+            username: slot.username,
+            password: slot.password,
             firstName: slot.firstName,
             greeting: slot.greeting,
             email: slot.email,
@@ -2141,9 +2156,54 @@ if ($('slotForm')) {
         console.warn('Slot saved locally, background sync pending:', err);
       }
     }
+  };
+}
 
-    renderFamilySlots();
-    $('editFamilySlotDialog')?.close();
+if ($('userLoginForm')) {
+  $('userLoginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    const username = $('loginUsernameInput')?.value.trim();
+    const password = $('loginPasswordInput')?.value.trim();
+    const keepAlive = $('loginKeepAliveCheckbox')?.checked !== false;
+    const errEl = $('loginErrorMsg');
+    if (errEl) errEl.hidden = true;
+    if (!username || !password) return;
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Anmeldung fehlgeschlagen');
+      }
+      token = data.token;
+      if (keepAlive) {
+        localStorage.setItem('pai_token', token);
+      } else {
+        sessionStorage.setItem('pai_token', token);
+        localStorage.removeItem('pai_token');
+      }
+      sessionStorage.removeItem('pai_logged_out');
+      await health();
+      if (data.user?.isAdmin) {
+        go('overview');
+      } else {
+        go('chat');
+      }
+    } catch (err) {
+      if (errEl) {
+        errEl.textContent = err.message;
+        errEl.hidden = false;
+      }
+    }
+  };
+}
+
+if ($('toggleLegacyLoginBtn')) {
+  $('toggleLegacyLoginBtn').onclick = () => {
+    if ($('manualConnection')) $('manualConnection').hidden = !$('manualConnection').hidden;
   };
 }
 

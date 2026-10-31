@@ -1,5 +1,86 @@
+import { SignJWT } from 'jose';
 import { authorize, authMode } from './auth.js';
 import { TERMS_VERSION } from './policy.js';
+
+export const DEFAULT_FAMILY_SLOTS = [
+  {
+    id: 'philipp',
+    firstName: 'Philipp',
+    username: 'philipp',
+    password: 'philipp2026',
+    greeting: 'Du, Boss, direkt & ungeschönt',
+    role: 'Betreiber & Boss',
+    avatar: '👑',
+    isAdmin: true,
+    notes: 'Vollzugriff, Dev-Titan Coding-Agent, Boss-Modus, D1-Speicher & Lernen-Reiter'
+  },
+  {
+    id: 'freundin',
+    firstName: 'Sophia',
+    username: 'sophia',
+    password: 'sophia2026',
+    greeting: 'Hallo Sophia',
+    role: 'Partnerin & VIP',
+    avatar: '🌸',
+    isAdmin: false,
+    notes: 'Philipps Freundin, wohnt in Grevesmühlen, Tochter von Verena, Schwester von Fabi.'
+  },
+  {
+    id: 'mutter_freundin',
+    firstName: 'Verena',
+    username: 'verena',
+    password: 'verena2026',
+    greeting: 'Hallo Verena',
+    role: 'Mutter von Sophia & Familie',
+    avatar: '🌿',
+    isAdmin: false,
+    notes: 'Verena ist die Mutter von Philipps Freundin Sophia. Sie fährt einen schwarzen Mitsubishi Space Star und hat ein Haus in Harkensee direkt neben ihren Eltern. Sie lebt zusammen mit ihrem Sohn Fabi im Haushalt. Ihre Tochter Sophia ist schon ausgezogen und wohnt in Grevesmühlen zusammen mit ihrem Freund Philipp (dem Entwickler dieser KI). Verena möchte sich bald nach neuen Jobs umsehen; die KI soll sie dabei freundlich, alltagstauglich und praktisch unterstützen (z.B. bei Bewerbungen, Formulierungen oder Jobideen). Tonalität: Respektvoll, herzlich, bodenständig und klar ohne Fachchinesisch.'
+  },
+  {
+    id: 'onkel_freundin',
+    firstName: 'Klaus',
+    username: 'klaus',
+    password: 'klaus2026',
+    greeting: 'Du, direkt, sachlich & Macher-Ton',
+    role: 'Technik & Handwerk',
+    avatar: '🛠️',
+    isAdmin: false,
+    notes: 'Praktiker, Heimwerker, Autos, Reparaturen, Werkzeug, Finanzen & solide Baupraxis'
+  },
+  {
+    id: 'mutter',
+    firstName: 'Monika',
+    username: 'monika',
+    password: 'monika2026',
+    greeting: 'Du, herzlich & fürsorglich',
+    role: 'Familie & Alltag',
+    avatar: '❤️',
+    isAdmin: false,
+    notes: 'Herzliche Fürsorge, Gesundheit, Alltagshilfe, Formulierungshilfe bei Briefen & Dokumenten'
+  },
+  {
+    id: 'vater',
+    firstName: 'Wolfgang',
+    username: 'wolfgang',
+    password: 'wolfgang2026',
+    greeting: 'Du, bodenständig & sachlich',
+    role: 'Familie & Macher',
+    avatar: '🏎️',
+    isAdmin: false,
+    notes: 'Bodenständig, sachlich, Technik, Kfz-Wartung (BMW), Verträge & praxiserprobte Lösungen'
+  },
+  {
+    id: 'slot_7',
+    firstName: 'Erik',
+    username: 'erik',
+    password: 'erik2026',
+    greeting: 'Du, kollegial & professionell',
+    role: 'Partner & VIP-Gast',
+    avatar: '⭐',
+    isAdmin: false,
+    notes: 'Geschäftspartner / Co-Founder, Business Development, Deals, Skalierung & Tech'
+  }
+];
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: {
@@ -80,18 +161,28 @@ async function rateAllowed(db, identity) {
 }
 
 function isOwner(identity, env) {
-  return identity.mode === 'access' && typeof env.OWNER_ACCESS_SUB === 'string' &&
-    env.OWNER_ACCESS_SUB.length > 0 && identity.id === `access:${env.OWNER_ACCESS_SUB}`;
+  if (identity.mode === 'access' && typeof env.OWNER_ACCESS_SUB === 'string' &&
+    env.OWNER_ACCESS_SUB.length > 0 && identity.id === `access:${env.OWNER_ACCESS_SUB}`) {
+    return true;
+  }
+  if (identity.mode === 'user' && identity.isAdmin === true) {
+    return true;
+  }
+  return false;
 }
 
 async function accountFor(db, identity) {
-  if (identity.mode !== 'access') return null;
+  if (identity.mode !== 'access' && identity.mode !== 'user') return null;
   let account = await db.prepare('SELECT * FROM app_accounts WHERE id = ?').bind(identity.id).first();
   if (!account) {
-    await db.prepare('INSERT OR IGNORE INTO app_accounts (id, email) VALUES (?, ?)').bind(identity.id, identity.email || '').run();
+    if (identity.mode === 'user') {
+      await db.prepare('INSERT OR IGNORE INTO app_accounts (id, email, display_name, status, terms_version, terms_accepted_at) VALUES (?, ?, ?, "active", ?, CURRENT_TIMESTAMP)').bind(identity.id, identity.email || '', identity.displayName || identity.username || '', TERMS_VERSION).run();
+    } else {
+      await db.prepare('INSERT OR IGNORE INTO app_accounts (id, email) VALUES (?, ?)').bind(identity.id, identity.email || '').run();
+    }
     account = await db.prepare('SELECT * FROM app_accounts WHERE id = ?').bind(identity.id).first();
   }
-  if (account.status === 'active') {
+  if (account && account.status === 'active') {
     await db.prepare("UPDATE app_accounts SET last_seen_at = CURRENT_TIMESTAMP WHERE id = ? AND last_seen_at < datetime('now', '-5 minutes')").bind(identity.id).run();
   }
   return account;
@@ -362,10 +453,13 @@ Erstelle für Philipp eine präzise, direkt umsetzbare Abstimmungs-Empfehlung in
   if (url.pathname === '/api/admin/family-slots' && request.method === 'GET') {
     const savedSlots = await env.DB.prepare("SELECT id, session_id, content, updated_at FROM ai_memories WHERE category = 'family_slot'").all();
     const map = {};
+    for (const def of DEFAULT_FAMILY_SLOTS) {
+      map[def.id] = { ...def };
+    }
     for (const row of (savedSlots.results || [])) {
       try {
         const parsed = JSON.parse(row.content);
-        if (parsed?.id) map[parsed.id] = { ...parsed, updatedAt: row.updated_at };
+        if (parsed?.id) map[parsed.id] = { ...map[parsed.id], ...parsed, updatedAt: row.updated_at };
       } catch {}
     }
     return json({ slots: map });
@@ -376,13 +470,15 @@ Erstelle für Philipp eine präzise, direkt umsetzbare Abstimmungs-Empfehlung in
     const slotId = typeof body.slotId === 'string' ? body.slotId.trim() : '';
     if (!slotId) throw new InputError('slotId erforderlich');
     const firstName = typeof body.firstName === 'string' ? body.firstName.trim().slice(0, 50) : '';
+    const username = typeof body.username === 'string' ? body.username.trim().toLowerCase().slice(0, 50) : slotId;
+    const password = typeof body.password === 'string' ? body.password.trim().slice(0, 100) : '';
     const greeting = typeof body.greeting === 'string' ? body.greeting.trim().slice(0, 100) : 'Du';
     const email = typeof body.email === 'string' ? body.email.trim().slice(0, 100) : '';
     const role = typeof body.role === 'string' ? body.role.trim().slice(0, 100) : 'Familie';
     const notes = typeof body.notes === 'string' ? body.notes.trim().slice(0, 2000) : '';
     const avatar = typeof body.avatar === 'string' ? body.avatar.trim().slice(0, 10) : '👤';
 
-    const slotPayload = { id: slotId, firstName, greeting, email, role, notes, avatar, configured: true };
+    const slotPayload = { id: slotId, firstName, username, password, greeting, email, role, notes, avatar, configured: true };
     const memoryId = `slot:${slotId}`;
 
     await env.DB.prepare("INSERT INTO ai_memories (id, session_id, content, category, created_at, updated_at) VALUES (?, ?, ?, 'family_slot', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP").bind(memoryId, memoryId, JSON.stringify(slotPayload)).run();
@@ -390,10 +486,12 @@ Erstelle für Philipp eine präzise, direkt umsetzbare Abstimmungs-Empfehlung in
     const briefingContent = `Persönliches Briefing für ${firstName || slotId}: Anrede/Ton: ${greeting}. Rolle: ${role}. Hintergrundwissen & Interessen: ${notes}`;
     const briefingId = `briefing:${slotId}`;
     await env.DB.prepare("INSERT INTO ai_memories (id, session_id, content, category, created_at, updated_at) VALUES (?, ?, ?, 'memory', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP").bind(briefingId, memoryId, briefingContent).run();
+    await env.DB.prepare("INSERT INTO ai_memories (id, session_id, content, category, created_at, updated_at) VALUES (?, ?, ?, 'memory', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP").bind(`briefing_user:${slotId}`, `user:${slotId}`, briefingContent).run();
 
     if (email) {
       await env.DB.prepare("UPDATE app_accounts SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?").bind(firstName, email).run();
     }
+    await env.DB.prepare("UPDATE app_accounts SET display_name = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(firstName, `user:${slotId}`).run();
 
     return json({ ok: true, slot: slotPayload });
   }
@@ -529,6 +627,75 @@ export function createWorker({ upstream = (...args) => fetch(...args) } = {}) {
       if (authMode(env) === 'access') return json({ mode: 'access' });
       if (typeof env.APP_TOKEN === 'string' && env.APP_TOKEN.length >= 32) return json({ token: env.APP_TOKEN, mode: 'token' });
       return json({ error: 'Nicht konfiguriert' }, 503);
+    }
+    if (url.pathname === '/api/auth/login' && request.method === 'POST') {
+      const body = await readJson(request).catch(() => ({}));
+      const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+      const password = typeof body.password === 'string' ? body.password.trim() : '';
+      if (!username || !password) return json({ error: 'Benutzername und Passwort eingeben', code: 'INVALID_CREDENTIALS' }, 400);
+
+      let savedSlots = { results: [] };
+      if (env.DB) {
+        try {
+          savedSlots = await env.DB.prepare("SELECT content FROM ai_memories WHERE category = 'family_slot'").all();
+        } catch {}
+      }
+      const slotsMap = {};
+      for (const row of (savedSlots.results || [])) {
+        try {
+          const parsed = JSON.parse(row.content);
+          if (parsed?.id) slotsMap[parsed.id] = parsed;
+        } catch {}
+      }
+
+      const allSlots = DEFAULT_FAMILY_SLOTS.map(def => ({ ...def, ...(slotsMap[def.id] || {}) }));
+      const matched = allSlots.find(s => {
+        const u = (s.username || s.id).toLowerCase();
+        const p = s.password || (s.id + '2026');
+        return u === username && p === password;
+      });
+
+      if (!matched) {
+        return json({ error: 'Benutzername oder Passwort nicht korrekt', code: 'INVALID_CREDENTIALS' }, 401);
+      }
+
+      const userId = matched.isAdmin ? 'owner' : `user:${matched.id}`;
+
+      if (env.DB) {
+        try {
+          await env.DB.prepare("INSERT INTO app_accounts (id, email, display_name, status, terms_version, terms_accepted_at) VALUES (?, ?, ?, 'active', ?, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET display_name = excluded.display_name, last_seen_at = CURRENT_TIMESTAMP").bind(userId, matched.email || `${matched.username || matched.id}@philipp-ai.local`, matched.firstName, TERMS_VERSION).run();
+
+          const briefingContent = `Persönliches Briefing für ${matched.firstName}: Anrede/Ton: ${matched.greeting}. Rolle: ${matched.role}. Hintergrundwissen & Interessen: ${matched.notes}`;
+          await env.DB.prepare("INSERT INTO ai_memories (id, session_id, content, category, created_at, updated_at) VALUES (?, ?, ?, 'memory', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET content = excluded.content, updated_at = CURRENT_TIMESTAMP").bind(`briefing_user:${matched.id}`, userId, briefingContent).run();
+        } catch {}
+      }
+
+      const secret = new TextEncoder().encode(env.APP_TOKEN || 'philipp-ai-session-key-2026-fallback');
+      const token = await new SignJWT({
+        sub: userId,
+        slotId: matched.id,
+        username: matched.username || matched.id,
+        displayName: matched.firstName,
+        isAdmin: Boolean(matched.isAdmin)
+      })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setIssuedAt()
+      .setExpirationTime('365d')
+      .sign(secret);
+
+      return json({
+        ok: true,
+        token,
+        user: {
+          id: userId,
+          slotId: matched.id,
+          username: matched.username || matched.id,
+          displayName: matched.firstName,
+          greeting: matched.greeting,
+          role: matched.role,
+          isAdmin: Boolean(matched.isAdmin)
+        }
+      });
     }
     const identity = await authorize(request, env);
     if (!identity) return json({ error: 'Anmeldung erforderlich', code: 'UNAUTHORIZED', authMode: authMode(env) }, 401);

@@ -247,3 +247,65 @@ test('Admin GET/POST /api/admin/family-slots: 7 Familien-Slots personalisieren u
   assert.match(briefingRow.content, /Partnerin & VIP/);
 });
 
+test('Auth: Benutzername & Passwort Login für Philipp (Master) und Verena (Familie)', async t => {
+  const f = await fixture(t);
+
+  // 1. Falsches Passwort wirft 401
+  const failRes = await f.call('alice', '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'philipp', password: 'wrongpassword' }
+  });
+  assert.equal(failRes.status, 401);
+
+  // 2. Philipp Login (Master)
+  const loginResPhilipp = await f.call('alice', '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'philipp', password: 'philipp2026' }
+  });
+  assert.equal(loginResPhilipp.status, 200);
+  const dataPhilipp = await loginResPhilipp.json();
+  assert.equal(dataPhilipp.ok, true);
+  assert.equal(dataPhilipp.user.isAdmin, true);
+  assert.equal(dataPhilipp.user.displayName, 'Philipp');
+  assert.ok(dataPhilipp.token);
+
+  // 3. Philipp Token nutzen: Zugriff auf Status und Adminbereich
+  const statusRes = await f.call('none', '/api/status', {
+    headers: { Authorization: `Bearer ${dataPhilipp.token}`, 'Cf-Access-Jwt-Assertion': '' }
+  });
+  assert.equal(statusRes.status, 200);
+  const statusData = await statusRes.json();
+  assert.equal(statusData.isAdmin, true);
+
+  const adminRes = await f.call('none', '/api/admin/users', {
+    headers: { Authorization: `Bearer ${dataPhilipp.token}`, 'Cf-Access-Jwt-Assertion': '' }
+  });
+  assert.equal(adminRes.status, 200);
+
+  // 4. Verena Login (Familie)
+  const loginResVerena = await f.call('alice', '/api/auth/login', {
+    method: 'POST',
+    body: { username: 'verena', password: 'verena2026' }
+  });
+  assert.equal(loginResVerena.status, 200);
+  const dataVerena = await loginResVerena.json();
+  assert.equal(dataVerena.ok, true);
+  assert.equal(dataVerena.user.isAdmin, false);
+  assert.equal(dataVerena.user.displayName, 'Verena');
+  assert.ok(dataVerena.token);
+
+  // 5. Verena Token nutzen: Chat/Status erlaubt, aber Adminbereich strikt verboten (403)
+  const verenaStatus = await f.call('none', '/api/status', {
+    headers: { Authorization: `Bearer ${dataVerena.token}`, 'Cf-Access-Jwt-Assertion': '' }
+  });
+  assert.equal(verenaStatus.status, 200);
+  const verenaStatusData = await verenaStatus.json();
+  assert.equal(verenaStatusData.isAdmin, false);
+
+  const verenaAdminRes = await f.call('none', '/api/admin/users', {
+    headers: { Authorization: `Bearer ${dataVerena.token}`, 'Cf-Access-Jwt-Assertion': '' }
+  });
+  assert.equal(verenaAdminRes.status, 403);
+});
+
+

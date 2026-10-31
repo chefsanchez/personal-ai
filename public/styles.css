@@ -1720,3 +1720,14 @@ body {
 .slot-dialog-avatar{font-size:38px;line-height:1}
 .slot-card-actions{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06)}
 .slot-edit-btn{font-size:10px;padding:4px 10px;border-radius:8px}
+
+/* User Login & Credentials Styling */
+.login-card{border-radius:24px;padding:24px;margin-bottom:20px;border:1px solid rgba(255,255,255,.1)}
+.login-badge-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.login-pill{font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;letter-spacing:.05em}
+.remember-row{display:flex;align-items:center;gap:10px;margin-top:14px;cursor:pointer;font-size:12px;color:#cbd5e1}
+.remember-row input{width:18px;height:18px;accent-color:#38bdf8;cursor:pointer}
+.login-credentials-box{background:rgba(255,215,0,.04);border:1px solid rgba(255,215,0,.2);border-radius:14px;padding:12px 14px;margin-bottom:14px}
+.form-error{color:#ef4444;font-size:12px;margin-top:8px}
+.slot-credentials-tag{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:10px;color:#38bdf8;background:rgba(56,189,248,.08);padding:3px 7px;border-radius:6px;border:1px solid rgba(56,189,248,.2)}
+
